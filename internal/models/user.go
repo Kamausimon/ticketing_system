@@ -35,7 +35,7 @@ type User struct {
 	Password         string  `gorm:"not null"`
 	ConfirmationCode string
 	Isconfirmed      bool `gorm:"default:false"`
-	Role             Role `gorm:"type:Role;default:'customer';not null"`
+	Role             Role `gorm:"type:varchar(20);default:'customer';not null"`
 	IsActive         bool `gorm:"default:true"`
 	ProfilePicture   *string
 }
