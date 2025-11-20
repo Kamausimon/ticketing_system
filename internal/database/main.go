@@ -15,7 +15,7 @@ type DbConfig struct {
 }
 
 func Init() *gorm.DB {
-	err := godotenv.Load("../../.env")
+	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatal("There was an error reading the env variables", err)
 	}
