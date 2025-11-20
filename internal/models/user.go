@@ -38,4 +38,10 @@ type User struct {
 	Role             Role `gorm:"type:varchar(20);default:'customer';not null"`
 	IsActive         bool `gorm:"default:true"`
 	ProfilePicture   *string
+
+	// JWT Token fields
+	RefreshToken    *string `gorm:"type:text"` // Store refresh token
+	RefreshTokenExp *int64  // Refresh token expiration timestamp
+	LastLoginAt     *int64  // Track last login time
+	TokenVersion    int     `gorm:"default:1"` // For token invalidation
 }
