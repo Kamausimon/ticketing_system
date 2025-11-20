@@ -5,12 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 func HashPassword(password string) (string, error) {
@@ -29,12 +29,12 @@ func ComparePassword(password, hash string) (bool, error) {
 	return match, nil
 }
 
-func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
+func MakeJWT(userID uint, tokenSecret string, expiresIn time.Duration) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    "chirpy",
+		Issuer:    "ticketing",
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
-		Subject:   userID.String(),
+		Subject:   strconv.FormatUint(uint64(userID), 10),
 	})
 
 	tokenString, err := token.SignedString([]byte(tokenSecret))
@@ -43,45 +43,6 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 	}
 
 	return tokenString, nil
-}
-
-func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
-
-	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(tokenSecret), nil
-	})
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	if claims, ok := token.Claims.(*jwt.RegisteredClaims); ok && token.Valid {
-		userID, err := uuid.Parse(claims.Subject)
-		if err != nil {
-			return uuid.Nil, fmt.Errorf("invalid user id: %w", err)
-		}
-		return userID, nil
-	}
-
-	return uuid.Nil, fmt.Errorf("invalid token")
-}
-
-func GetBearerToken(headers http.Header) (string, error) {
-	authHeader := headers.Get("Authorization")
-
-	if authHeader == "" {
-		return "", fmt.Errorf("the authorization header cannot be found")
-	}
-
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return "", fmt.Errorf("does not contain bearer token")
-	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-
-	return strings.TrimSpace(token), nil
 }
 
 func MakeRefreshToken() (string, error) {
