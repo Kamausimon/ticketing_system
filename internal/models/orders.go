@@ -56,10 +56,12 @@ type Order struct {
 	IsPaymentReceived   bool           `gorm:"default:false"`
 	IsBusiness          bool
 	TaxAmount           float32
-	Status              OrderStatus   `gorm:"not null;default:'pending';index"`
-	PaymentStatus       PaymentStatus `gorm:"not null;default:'pending'"`
-	OrderItems          []OrderItem   `gorm:"foreignKey:OrderID"`
-	Currency            string        `gorm:"not null;default:'KSH'"`
+	Status              OrderStatus     `gorm:"not null;default:'pending';index"`
+	PaymentStatus       PaymentStatus   `gorm:"not null;default:'pending'"`
+	OrderItems          []OrderItem     `gorm:"foreignKey:OrderID"`
+	PaymentRecords      []PaymentRecord `gorm:"foreignKey:OrderID"`
+	TotalAmount         Money           `gorm:"not null"` // Total order amount in cents
+	Currency            string          `gorm:"not null;default:'KSH'"`
 	CompletedAt         *time.Time
 	CancelledAt         *time.Time
 	RefundedAt          *time.Time
