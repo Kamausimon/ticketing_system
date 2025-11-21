@@ -95,6 +95,9 @@ type RefundRecord struct {
 	InternalNotes   *string // Admin notes
 	RejectionReason *string // Why rejected
 
+	// Line items for partial refunds
+	RefundLineItems []RefundLineItem `gorm:"foreignKey:RefundRecordID"`
+
 	// Soft delete
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
