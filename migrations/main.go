@@ -93,11 +93,15 @@ func runMigrations(db *gorm.DB) error {
 	// Payment and financial models
 	log.Println("💰 Migrating payment models...")
 	err = db.AutoMigrate(
+		&models.PaymentMethod{},
 		&models.PaymentTransaction{},
 		&models.PaymentRecord{},
 		&models.SettlementRecord{},
 		&models.SettlementItem{},
 		&models.RefundRecord{},
+		&models.RefundLineItem{},
+		&models.PayoutAccount{},
+		&models.WebhookLog{},
 	)
 	if err != nil {
 		return err
@@ -167,6 +171,10 @@ func createCustomIndexes(db *gorm.DB) error {
 		// Payment performance indexes
 		"CREATE INDEX IF NOT EXISTS idx_payment_records_lookup ON payment_records(type, status, initiated_at);",
 		"CREATE INDEX IF NOT EXISTS idx_settlement_lookup ON settlement_records(status, earliest_payout_date);",
+		"CREATE INDEX IF NOT EXISTS idx_payment_methods_active ON payment_methods(account_id, status, is_default) WHERE status = 'active';",
+		"CREATE INDEX IF NOT EXISTS idx_payout_accounts_verified ON payout_accounts(organizer_id, status, is_verified) WHERE status = 'verified';",
+		"CREATE INDEX IF NOT EXISTS idx_webhook_logs_processing ON webhook_logs(provider, status, created_at);",
+		"CREATE INDEX IF NOT EXISTS idx_webhook_logs_events ON webhook_logs(event_id, event_type, created_at);",
 
 		// Promotion performance indexes
 		"CREATE INDEX IF NOT EXISTS idx_promotions_active ON promotions(status, start_date, end_date) WHERE status = 'active';",
@@ -179,6 +187,10 @@ func createCustomIndexes(db *gorm.DB) error {
 		// Analytics indexes
 		"CREATE INDEX IF NOT EXISTS idx_metrics_time_series ON system_metrics(metric_name, granularity, timestamp);",
 		"CREATE INDEX IF NOT EXISTS idx_event_analytics ON event_metrics(event_id, date);",
+
+		// Refund line items indexes
+		"CREATE INDEX IF NOT EXISTS idx_refund_line_items_lookup ON refund_line_items(refund_record_id, order_item_id);",
+		"CREATE INDEX IF NOT EXISTS idx_refund_line_items_ticket ON refund_line_items(ticket_id) WHERE ticket_id IS NOT NULL;",
 	}
 
 	for _, indexSQL := range indexes {
