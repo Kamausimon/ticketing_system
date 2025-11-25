@@ -1,6 +1,7 @@
 package events
 
 import (
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -9,12 +10,16 @@ import (
 
 // EventHandler handles all event-related operations
 type EventHandler struct {
-	db *gorm.DB
+	db      *gorm.DB
+	metrics *analytics.PrometheusMetrics
 }
 
 // NewEventHandler creates a new event handler
-func NewEventHandler(db *gorm.DB) *EventHandler {
-	return &EventHandler{db: db}
+func NewEventHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *EventHandler {
+	return &EventHandler{
+		db:      db,
+		metrics: metrics,
+	}
 }
 
 // Common event request/response structures

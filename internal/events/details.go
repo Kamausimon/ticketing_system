@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,6 +34,11 @@ func (h *EventHandler) GetEventDetails(w http.ResponseWriter, r *http.Request) {
 		First(&event).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "event not found")
 		return
+	}
+
+	// Track event view metrics
+	if h.metrics != nil {
+		h.metrics.TrackEventView(fmt.Sprintf("%d", eventID))
 	}
 
 	// Check if event is accessible (live events are public, others require organizer access)
@@ -255,6 +261,11 @@ func (h *EventHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.Save(&event).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to publish event")
 		return
+	}
+
+	// Track metrics for event publishing
+	if h.metrics != nil {
+		h.metrics.EventsPublished.Inc()
 	}
 
 	response := map[string]interface{}{

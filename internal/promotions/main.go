@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base32"
 	"strings"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -12,12 +13,16 @@ import (
 
 // PromotionHandler handles all promotion-related operations
 type PromotionHandler struct {
-	db *gorm.DB
+	db      *gorm.DB
+	metrics *analytics.PrometheusMetrics
 }
 
 // NewPromotionHandler creates a new promotion handler
-func NewPromotionHandler(db *gorm.DB) *PromotionHandler {
-	return &PromotionHandler{db: db}
+func NewPromotionHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *PromotionHandler {
+	return &PromotionHandler{
+		db:      db,
+		metrics: metrics,
+	}
 }
 
 // PromotionResponse represents the promotion response structure

@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -9,12 +10,16 @@ import (
 
 // AccountHandler handles all account-related operations
 type AccountHandler struct {
-	db *gorm.DB
+	db       *gorm.DB
+	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
 }
 
 // NewAccountHandler creates a new account handler
-func NewAccountHandler(db *gorm.DB) *AccountHandler {
-	return &AccountHandler{db: db}
+func NewAccountHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *AccountHandler {
+	return &AccountHandler{
+		db:       db,
+		_metrics: metrics,
+	}
 }
 
 // Account response structures

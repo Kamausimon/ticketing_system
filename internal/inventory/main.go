@@ -6,17 +6,22 @@ import (
 	"net/http"
 	"time"
 
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 
 	"gorm.io/gorm"
 )
 
 type InventoryHandler struct {
-	DB *gorm.DB
+	db       *gorm.DB
+	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
 }
 
-func NewInventoryHandler(db *gorm.DB) *InventoryHandler {
-	return &InventoryHandler{DB: db}
+func NewInventoryHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *InventoryHandler {
+	return &InventoryHandler{
+		db:       db,
+		_metrics: metrics,
+	}
 }
 
 // Request types
@@ -108,7 +113,7 @@ func (h *InventoryHandler) calculateAvailableQuantity(ticketClass *models.Ticket
 
 	// Calculate reserved quantity
 	var reservedQty int
-	h.DB.Model(&models.ReservedTicket{}).
+	h.db.Model(&models.ReservedTicket{}).
 		Where("ticket_id = ? AND expires > ?", ticketClass.ID, time.Now()).
 		Select("COALESCE(SUM(quantity_reserved), 0)").
 		Scan(&reservedQty)
@@ -141,7 +146,7 @@ func (h *InventoryHandler) isTicketClassSaleable(ticketClass *models.TicketClass
 
 func (h *InventoryHandler) getReservedQuantity(ticketClassID uint) int {
 	var reservedQty int
-	h.DB.Model(&models.ReservedTicket{}).
+	h.db.Model(&models.ReservedTicket{}).
 		Where("ticket_id = ? AND expires > ?", ticketClassID, time.Now()).
 		Select("COALESCE(SUM(quantity_reserved), 0)").
 		Scan(&reservedQty)

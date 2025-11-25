@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 
@@ -11,11 +12,15 @@ import (
 )
 
 type OrganizerHandler struct {
-	db *gorm.DB
+	db       *gorm.DB
+	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
 }
 
-func NewOrganizerHandler(db *gorm.DB) *OrganizerHandler {
-	return &OrganizerHandler{db: db}
+func NewOrganizerHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *OrganizerHandler {
+	return &OrganizerHandler{
+		db:       db,
+		_metrics: metrics,
+	}
 }
 
 // Request/Response structures

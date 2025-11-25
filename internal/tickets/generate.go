@@ -126,6 +126,16 @@ func (h *TicketHandler) GenerateTickets(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Track metrics for ticket generation
+	if h.metrics != nil {
+		for _, item := range order.OrderItems {
+			h.metrics.TicketsGenerated.WithLabelValues(
+				fmt.Sprintf("%d", item.TicketClass.EventID),
+				fmt.Sprintf("%d", order.ID),
+			).Add(float64(item.Quantity))
+		}
+	}
+
 	// Load full ticket details
 	var tickets []models.Ticket
 	h.db.Preload("OrderItem.TicketClass.Event").

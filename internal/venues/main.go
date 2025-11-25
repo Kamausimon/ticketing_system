@@ -3,17 +3,22 @@ package venues
 import (
 	"encoding/json"
 	"net/http"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 
 	"gorm.io/gorm"
 )
 
 type VenueHandler struct {
-	db *gorm.DB
+	db       *gorm.DB
+	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
 }
 
-func NewVenueHandler(db *gorm.DB) *VenueHandler {
-	return &VenueHandler{db: db}
+func NewVenueHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *VenueHandler {
+	return &VenueHandler{
+		db:       db,
+		_metrics: metrics,
+	}
 }
 
 // Response types

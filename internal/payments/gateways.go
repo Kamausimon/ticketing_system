@@ -8,7 +8,7 @@ import (
 // GetAvailableGateways returns list of configured payment gateways
 func (h *PaymentHandler) GetAvailableGateways(w http.ResponseWriter, r *http.Request) {
 	var gateways []models.PaymentGateway
-	if err := h.DB.Find(&gateways).Error; err != nil {
+	if err := h.db.Find(&gateways).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch payment gateways")
 		return
 	}

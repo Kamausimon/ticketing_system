@@ -23,7 +23,7 @@ func (h *RefundHandler) ListPendingRefunds(w http.ResponseWriter, r *http.Reques
 	organizerID, _ := r.Context().Value("organizer_id").(uint)
 
 	// Query pending refunds
-	query := h.DB.Where("status = ?", models.RefundRequested)
+	query := h.db.Where("status = ?", models.RefundRequested)
 
 	// If organizer, only show their events' refunds
 	if userRole == "organizer" && organizerID != 0 {
@@ -91,7 +91,7 @@ func (h *RefundHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch refund
 	var refund models.RefundRecord
-	if err := h.DB.Preload("Order").Preload("Event").First(&refund, refundID).Error; err != nil {
+	if err := h.db.Preload("Order").Preload("Event").First(&refund, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund not found")
 		return
 	}
@@ -125,7 +125,7 @@ func (h *RefundHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 		refund.FailedAt = &now
 	}
 
-	if err := h.DB.Save(&refund).Error; err != nil {
+	if err := h.db.Save(&refund).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update refund status")
 		return
 	}
@@ -163,7 +163,7 @@ func (h *RefundHandler) GetRefundDetails(w http.ResponseWriter, r *http.Request)
 	refundID := vars["id"]
 
 	var refund models.RefundRecord
-	if err := h.DB.Preload("RefundLineItems").Preload("Order").Preload("Account").Preload("Event").First(&refund, refundID).Error; err != nil {
+	if err := h.db.Preload("RefundLineItems").Preload("Order").Preload("Account").Preload("Event").First(&refund, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund not found")
 		return
 	}
@@ -229,7 +229,7 @@ func (h *RefundHandler) ListRefundsByOrganizer(w http.ResponseWriter, r *http.Re
 	// Optional status filter
 	status := r.URL.Query().Get("status")
 
-	query := h.DB.Where("organizer_id = ?", organizerID)
+	query := h.db.Where("organizer_id = ?", organizerID)
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}

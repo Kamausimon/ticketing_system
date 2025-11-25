@@ -2,6 +2,7 @@ package promotions
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/middleware"
@@ -94,6 +95,16 @@ func (h *PromotionHandler) RecordPromotionUsage(w http.ResponseWriter, r *http.R
 	promotion.TotalRevenue += models.Money(req.FinalAmount)
 	promotion.TotalDiscount += models.Money(req.DiscountAmount)
 	promotion.LastUsageCheck = &usage.UsedAt
+
+	// Track metrics
+	if h.metrics != nil {
+		h.metrics.TrackPromotionUsage(
+			fmt.Sprintf("%d", req.PromotionID),
+			promotion.Code,
+			float64(req.DiscountAmount)/100.0,
+			order.Currency,
+		)
+	}
 
 	// Check if exhausted
 	if !promotion.IsUnlimited && promotion.UsageLimit != nil {

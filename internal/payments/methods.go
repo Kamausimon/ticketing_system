@@ -31,7 +31,7 @@ func (h *PaymentHandler) SavePaymentMethod(w http.ResponseWriter, r *http.Reques
 
 	// If setting as default, unset other defaults
 	if req.IsDefault {
-		h.DB.Model(&models.PaymentMethod{}).
+		h.db.Model(&models.PaymentMethod{}).
 			Where("account_id = ? AND is_default = true", req.AccountID).
 			Update("is_default", false)
 	}
@@ -50,7 +50,7 @@ func (h *PaymentHandler) SavePaymentMethod(w http.ResponseWriter, r *http.Reques
 		IsVerified:              true,
 	}
 
-	if err := h.DB.Create(&paymentMethod).Error; err != nil {
+	if err := h.db.Create(&paymentMethod).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to save payment method")
 		return
 	}
@@ -68,7 +68,7 @@ func (h *PaymentHandler) GetPaymentMethods(w http.ResponseWriter, r *http.Reques
 	}
 
 	var methods []models.PaymentMethod
-	if err := h.DB.Where("account_id = ? AND deleted_at IS NULL", accountID).
+	if err := h.db.Where("account_id = ? AND deleted_at IS NULL", accountID).
 		Order("is_default DESC, created_at DESC").
 		Find(&methods).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch payment methods")
@@ -95,7 +95,7 @@ func (h *PaymentHandler) DeletePaymentMethod(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.DB.Delete(&models.PaymentMethod{}, methodID).Error; err != nil {
+	if err := h.db.Delete(&models.PaymentMethod{}, methodID).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to delete payment method")
 		return
 	}
@@ -113,19 +113,19 @@ func (h *PaymentHandler) SetDefaultPaymentMethod(w http.ResponseWriter, r *http.
 	}
 
 	var method models.PaymentMethod
-	if err := h.DB.First(&method, methodID).Error; err != nil {
+	if err := h.db.First(&method, methodID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Payment method not found")
 		return
 	}
 
 	// Unset other defaults for this account
-	h.DB.Model(&models.PaymentMethod{}).
+	h.db.Model(&models.PaymentMethod{}).
 		Where("account_id = ? AND id != ?", method.AccountID, methodID).
 		Update("is_default", false)
 
 	// Set this as default
 	method.IsDefault = true
-	if err := h.DB.Save(&method).Error; err != nil {
+	if err := h.db.Save(&method).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update default")
 		return
 	}
@@ -153,7 +153,7 @@ func (h *PaymentHandler) UpdatePaymentMethodExpiry(w http.ResponseWriter, r *htt
 	}
 
 	var method models.PaymentMethod
-	if err := h.DB.First(&method, methodID).Error; err != nil {
+	if err := h.db.First(&method, methodID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Payment method not found")
 		return
 	}
@@ -165,7 +165,7 @@ func (h *PaymentHandler) UpdatePaymentMethodExpiry(w http.ResponseWriter, r *htt
 	now := time.Now()
 	method.VerifiedAt = &now
 
-	if err := h.DB.Save(&method).Error; err != nil {
+	if err := h.db.Save(&method).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update expiry")
 		return
 	}

@@ -34,7 +34,7 @@ func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 	refundID := vars["id"]
 
 	var refund models.RefundRecord
-	if err := h.DB.Preload("Order").Preload("Order.PaymentRecords").First(&refund, refundID).Error; err != nil {
+	if err := h.db.Preload("Order").Preload("Order.PaymentRecords").First(&refund, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund not found")
 		return
 	}
@@ -72,7 +72,7 @@ func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 	refund.Status = models.RefundProcessing
 	refund.ProcessedAt = &now
 
-	if err := h.DB.Save(&refund).Error; err != nil {
+	if err := h.db.Save(&refund).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update refund status")
 		return
 	}
@@ -84,7 +84,7 @@ func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 		refund.Status = models.RefundFailed
 		failedAt := time.Now()
 		refund.FailedAt = &failedAt
-		h.DB.Save(&refund)
+		h.db.Save(&refund)
 
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to process refund: %v", err))
 		return
@@ -96,14 +96,14 @@ func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 	completedAt := time.Now()
 	refund.CompletedAt = &completedAt
 
-	if err := h.DB.Save(&refund).Error; err != nil {
+	if err := h.db.Save(&refund).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update refund status")
 		return
 	}
 
 	// Update order status
 	refund.Order.Status = "refunded"
-	h.DB.Save(&refund.Order)
+	h.db.Save(&refund.Order)
 
 	// TODO: Update settlement records to reflect refund impact
 	// TODO: Send notification to customer about refund completion
@@ -202,7 +202,7 @@ func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request
 	refundID := vars["id"]
 
 	var refund models.RefundRecord
-	if err := h.DB.Preload("Order").Preload("Order.PaymentRecords").First(&refund, refundID).Error; err != nil {
+	if err := h.db.Preload("Order").Preload("Order.PaymentRecords").First(&refund, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund not found")
 		return
 	}
@@ -235,7 +235,7 @@ func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request
 	refund.ProcessedAt = &now
 	refund.FailedAt = nil
 
-	if err := h.DB.Save(&refund).Error; err != nil {
+	if err := h.db.Save(&refund).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update refund status")
 		return
 	}
@@ -247,7 +247,7 @@ func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request
 		refund.Status = models.RefundFailed
 		failedAt := time.Now()
 		refund.FailedAt = &failedAt
-		h.DB.Save(&refund)
+		h.db.Save(&refund)
 
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to process refund: %v", err))
 		return
@@ -259,7 +259,7 @@ func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request
 	completedAt := time.Now()
 	refund.CompletedAt = &completedAt
 
-	if err := h.DB.Save(&refund).Error; err != nil {
+	if err := h.db.Save(&refund).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to update refund status")
 		return
 	}
@@ -285,7 +285,7 @@ func (h *RefundHandler) GetRefundStatistics(w http.ResponseWriter, r *http.Reque
 
 	organizerID, _ := r.Context().Value("organizer_id").(uint)
 
-	query := h.DB.Model(&models.RefundRecord{})
+	query := h.db.Model(&models.RefundRecord{})
 	if userRole == "organizer" && organizerID != 0 {
 		query = query.Where("organizer_id = ?", organizerID)
 	}

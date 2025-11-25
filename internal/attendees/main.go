@@ -1,6 +1,7 @@
 package attendees
 
 import (
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -9,12 +10,16 @@ import (
 
 // AttendeeHandler handles all attendee-related operations
 type AttendeeHandler struct {
-	db *gorm.DB
+	db       *gorm.DB
+	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
 }
 
 // NewAttendeeHandler creates a new attendee handler
-func NewAttendeeHandler(db *gorm.DB) *AttendeeHandler {
-	return &AttendeeHandler{db: db}
+func NewAttendeeHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *AttendeeHandler {
+	return &AttendeeHandler{
+		db:       db,
+		_metrics: metrics,
+	}
 }
 
 // AttendeeResponse represents the attendee response structure

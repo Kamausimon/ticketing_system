@@ -21,7 +21,7 @@ func (h *PaymentHandler) InitiatePayment(w http.ResponseWriter, r *http.Request)
 
 	// Validate order exists
 	var order models.Order
-	if err := h.DB.First(&order, req.OrderID).Error; err != nil {
+	if err := h.db.First(&order, req.OrderID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Order not found")
 		return
 	}
@@ -43,13 +43,18 @@ func (h *PaymentHandler) InitiatePayment(w http.ResponseWriter, r *http.Request)
 		ExternalReference: &apiRef,
 	}
 
-	if err := h.DB.Create(&paymentRecord).Error; err != nil {
+	if err := h.db.Create(&paymentRecord).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to create payment record")
 		return
 	}
 
 	// Process based on payment method
 	var response PaymentResponse
+
+	// Track payment attempt
+	if h.metrics != nil {
+		h.metrics.TrackPaymentAttempt("intasend", req.PaymentMethod)
+	}
 
 	switch req.PaymentMethod {
 	case "mpesa":
@@ -135,7 +140,7 @@ func (h *PaymentHandler) GetPaymentStatus(w http.ResponseWriter, r *http.Request
 	}
 
 	var paymentRecord models.PaymentRecord
-	if err := h.DB.Where("order_id = ?", orderID).
+	if err := h.db.Where("order_id = ?", orderID).
 		Order("created_at DESC").
 		First(&paymentRecord).Error; err != nil {
 		writeError(w, http.StatusNotFound, "No payment found for this order")
@@ -162,7 +167,7 @@ func (h *PaymentHandler) GetPaymentHistory(w http.ResponseWriter, r *http.Reques
 	}
 
 	var payments []models.PaymentRecord
-	if err := h.DB.Where("account_id = ?", accountID).
+	if err := h.db.Where("account_id = ?", accountID).
 		Order("created_at DESC").
 		Limit(50).
 		Find(&payments).Error; err != nil {

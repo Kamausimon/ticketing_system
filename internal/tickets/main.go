@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"fmt"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -10,12 +11,16 @@ import (
 
 // TicketHandler handles all ticket-related operations
 type TicketHandler struct {
-	db *gorm.DB
+	db      *gorm.DB
+	metrics *analytics.PrometheusMetrics
 }
 
 // NewTicketHandler creates a new ticket handler
-func NewTicketHandler(db *gorm.DB) *TicketHandler {
-	return &TicketHandler{db: db}
+func NewTicketHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *TicketHandler {
+	return &TicketHandler{
+		db:      db,
+		metrics: metrics,
+	}
 }
 
 // TicketResponse represents the ticket response structure

@@ -157,6 +157,12 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track metrics - order created
+	if h.metrics != nil {
+		h.metrics.TrackOrderCreated(string(models.OrderPending))
+		h.metrics.OrderValue.WithLabelValues(calculation.Currency).Observe(calculation.TotalAmount)
+	}
+
 	// Load order with relations
 	var createdOrder models.Order
 	h.db.Preload("Event").Preload("OrderItems.TicketClass").First(&createdOrder, order.ID)

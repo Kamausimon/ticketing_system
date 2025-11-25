@@ -3,22 +3,25 @@ package refunds
 import (
 	"encoding/json"
 	"net/http"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 
 	"gorm.io/gorm"
 )
 
 type RefundHandler struct {
-	DB *gorm.DB
+	db       *gorm.DB
+	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
 	// Payment handler for processing actual refunds through gateway
 	IntasendSecretKey     string
 	IntasendWebhookSecret string
 	IntasendTestMode      bool
 }
 
-func NewRefundHandler(db *gorm.DB, intasendSecret, webhookSecret string, testMode bool) *RefundHandler {
+func NewRefundHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, intasendSecret, webhookSecret string, testMode bool) *RefundHandler {
 	return &RefundHandler{
-		DB:                    db,
+		db:                    db,
+		_metrics:              metrics,
 		IntasendSecretKey:     intasendSecret,
 		IntasendWebhookSecret: webhookSecret,
 		IntasendTestMode:      testMode,

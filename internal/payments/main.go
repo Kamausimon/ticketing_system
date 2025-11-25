@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 
 	"gorm.io/gorm"
 )
 
 type PaymentHandler struct {
-	DB                     *gorm.DB
+	db                     *gorm.DB
+	metrics                *analytics.PrometheusMetrics
 	IntasendPublishableKey string
 	IntasendSecretKey      string
 	IntasendWebhookSecret  string
@@ -20,9 +22,10 @@ type PaymentHandler struct {
 	// StripeWebhookSecret  string
 }
 
-func NewPaymentHandler(db *gorm.DB) *PaymentHandler {
+func NewPaymentHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *PaymentHandler {
 	return &PaymentHandler{
-		DB:                     db,
+		db:                     db,
+		metrics:                metrics,
 		IntasendPublishableKey: os.Getenv("INTASEND_PUBLISHABLE_KEY"),
 		IntasendSecretKey:      os.Getenv("INTASEND_SECRET_KEY"),
 		IntasendWebhookSecret:  os.Getenv("INTASEND_WEBHOOK_SECRET"),

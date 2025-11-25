@@ -138,6 +138,11 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track metrics for event creation
+	if h.metrics != nil {
+		h.metrics.TrackEventCreated(string(req.Category), fmt.Sprintf("%d", organizer.ID))
+	}
+
 	// Associate venues if provided
 	if len(req.VenueIDs) > 0 {
 		for _, venueID := range req.VenueIDs {

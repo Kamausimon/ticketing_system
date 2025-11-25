@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/middleware"
@@ -103,6 +104,13 @@ func (h *TicketHandler) CheckInTicket(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.Save(&ticket).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to check in ticket")
 		return
+	}
+
+	// Track metrics for check-in
+	if h.metrics != nil {
+		h.metrics.TicketsCheckedIn.WithLabelValues(
+			fmt.Sprintf("%d", req.EventID),
+		).Inc()
 	}
 
 	response := map[string]interface{}{

@@ -21,7 +21,7 @@ func (h *PaymentHandler) InitiateRefund(w http.ResponseWriter, r *http.Request) 
 
 	// Get payment record
 	var paymentRecord models.PaymentRecord
-	if err := h.DB.First(&paymentRecord, req.PaymentRecordID).Error; err != nil {
+	if err := h.db.First(&paymentRecord, req.PaymentRecordID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Payment record not found")
 		return
 	}
@@ -78,7 +78,7 @@ func (h *PaymentHandler) ListRefunds(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var refunds []models.RefundRecord
-	if err := h.DB.Where("order_id = ?", orderID).
+	if err := h.db.Where("order_id = ?", orderID).
 		Order("created_at DESC").
 		Find(&refunds).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch refunds")
@@ -101,7 +101,7 @@ func (h *PaymentHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var refundRecord models.RefundRecord
-	if err := h.DB.First(&refundRecord, refundID).Error; err != nil {
+	if err := h.db.First(&refundRecord, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund record not found")
 		return
 	}
@@ -116,7 +116,7 @@ func (h *PaymentHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 	refundRecord.ApprovedAt = &now
 	// TODO: Set ApprovedBy from authenticated user
 
-	if err := h.DB.Save(&refundRecord).Error; err != nil {
+	if err := h.db.Save(&refundRecord).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to approve refund")
 		return
 	}

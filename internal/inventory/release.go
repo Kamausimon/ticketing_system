@@ -22,13 +22,13 @@ func (h *InventoryHandler) ReleaseReservation(w http.ResponseWriter, r *http.Req
 	}
 
 	var reservation models.ReservedTicket
-	if err := h.DB.First(&reservation, reservationID).Error; err != nil {
+	if err := h.db.First(&reservation, reservationID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Reservation not found")
 		return
 	}
 
 	// Delete the reservation
-	if err := h.DB.Delete(&reservation).Error; err != nil {
+	if err := h.db.Delete(&reservation).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to release reservation")
 		return
 	}
@@ -43,7 +43,7 @@ func (h *InventoryHandler) ReleaseReservation(w http.ResponseWriter, r *http.Req
 // ReleaseExpiredReservations is a background job that releases all expired reservations
 func (h *InventoryHandler) ReleaseExpiredReservations(w http.ResponseWriter, r *http.Request) {
 	var expiredReservations []models.ReservedTicket
-	if err := h.DB.Where("expires <= ?", time.Now()).Find(&expiredReservations).Error; err != nil {
+	if err := h.db.Where("expires <= ?", time.Now()).Find(&expiredReservations).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch expired reservations")
 		return
 	}
@@ -63,7 +63,7 @@ func (h *InventoryHandler) ReleaseExpiredReservations(w http.ResponseWriter, r *
 	}
 
 	// Delete expired reservations
-	if err := h.DB.Where("id IN ?", reservationIDs).Delete(&models.ReservedTicket{}).Error; err != nil {
+	if err := h.db.Where("id IN ?", reservationIDs).Delete(&models.ReservedTicket{}).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to release expired reservations")
 		return
 	}
@@ -90,7 +90,7 @@ func (h *InventoryHandler) ConvertReservationToOrder(w http.ResponseWriter, r *h
 	}
 
 	// Start transaction
-	tx := h.DB.Begin()
+	tx := h.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -149,7 +149,7 @@ func (h *InventoryHandler) ReleaseSessionReservations(w http.ResponseWriter, r *
 	}
 
 	var reservations []models.ReservedTicket
-	if err := h.DB.Where("session_id = ?", sessionID).Find(&reservations).Error; err != nil {
+	if err := h.db.Where("session_id = ?", sessionID).Find(&reservations).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch reservations")
 		return
 	}
@@ -171,7 +171,7 @@ func (h *InventoryHandler) ReleaseSessionReservations(w http.ResponseWriter, r *
 	}
 
 	// Delete all reservations for this session
-	if err := h.DB.Where("session_id = ?", sessionID).Delete(&models.ReservedTicket{}).Error; err != nil {
+	if err := h.db.Where("session_id = ?", sessionID).Delete(&models.ReservedTicket{}).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to release reservations")
 		return
 	}
@@ -195,7 +195,7 @@ func (h *InventoryHandler) GetReservationsByEvent(w http.ResponseWriter, r *http
 	}
 
 	var reservations []models.ReservedTicket
-	if err := h.DB.Where("event_id = ? AND expires > ?", eventID, time.Now()).
+	if err := h.db.Where("event_id = ? AND expires > ?", eventID, time.Now()).
 		Order("created_at DESC").
 		Find(&reservations).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch reservations")
@@ -206,8 +206,8 @@ func (h *InventoryHandler) GetReservationsByEvent(w http.ResponseWriter, r *http
 	for _, res := range reservations {
 		var ticketClass models.TicketClass
 		var event models.Event
-		h.DB.First(&ticketClass, res.TicketID)
-		h.DB.First(&event, res.EventID)
+		h.db.First(&ticketClass, res.TicketID)
+		h.db.First(&event, res.EventID)
 		responses = append(responses, h.convertToReservationResponse(&res, ticketClass.Name, event.Title))
 	}
 

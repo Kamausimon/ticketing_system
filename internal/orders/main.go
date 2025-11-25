@@ -2,6 +2,7 @@ package orders
 
 import (
 	"fmt"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -10,12 +11,16 @@ import (
 
 // OrderHandler handles all order-related operations
 type OrderHandler struct {
-	db *gorm.DB
+	db      *gorm.DB
+	metrics *analytics.PrometheusMetrics
 }
 
 // NewOrderHandler creates a new order handler
-func NewOrderHandler(db *gorm.DB) *OrderHandler {
-	return &OrderHandler{db: db}
+func NewOrderHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *OrderHandler {
+	return &OrderHandler{
+		db:      db,
+		metrics: metrics,
+	}
 }
 
 // OrderResponse represents the order response structure

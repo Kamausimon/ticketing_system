@@ -71,6 +71,7 @@ func (h *OrderHandler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Update order status
+	oldStatus := order.Status
 	order.Status = req.Status
 	if req.Status == models.OrderFulfilled && order.CompletedAt == nil {
 		now := time.Now()
@@ -80,6 +81,16 @@ func (h *OrderHandler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	if err := h.db.Save(&order).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update order status")
 		return
+	}
+
+	// Track metrics for order completion
+	if h.metrics != nil && req.Status == models.OrderFulfilled && oldStatus != models.OrderFulfilled {
+		// Track revenue
+		h.metrics.TrackRevenue(float64(order.Amount), order.Currency, fmt.Sprintf("%d", order.EventID), "")
+
+		// Track completed order
+		paymentMethod := "unknown"
+		h.metrics.TrackOrderCompleted(paymentMethod, float64(order.Amount), order.Currency, time.Since(order.CreatedAt))
 	}
 
 	response := map[string]interface{}{
@@ -172,6 +183,11 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 
 	tx.Commit()
 
+	// Track metrics
+	if h.metrics != nil {
+		h.metrics.OrdersFailed.WithLabelValues("cancelled").Inc()
+	}
+
 	response := map[string]interface{}{
 		"message": "Order cancelled successfully",
 		"order":   convertToOrderResponse(order),
@@ -257,6 +273,11 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.Save(&order).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to process refund")
 		return
+	}
+
+	// Track metrics
+	if h.metrics != nil {
+		h.metrics.RefundsTotal.WithLabelValues(order.Currency, req.Reason).Add(refundAmount)
 	}
 
 	// TODO: Process actual refund through payment gateway

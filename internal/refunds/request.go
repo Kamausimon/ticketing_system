@@ -57,7 +57,7 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch the order and verify ownership
 	var order models.Order
-	if err := h.DB.Preload("OrderItems").Preload("Event").First(&order, req.OrderID).Error; err != nil {
+	if err := h.db.Preload("OrderItems").Preload("Event").First(&order, req.OrderID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Order not found")
 		return
 	}
@@ -75,7 +75,7 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 
 	// Check if order already has a pending/approved refund
 	var existingRefund models.RefundRecord
-	err := h.DB.Where("order_id = ? AND status IN ?", order.ID, []string{"requested", "approved", "processing"}).First(&existingRefund).Error
+	err := h.db.Where("order_id = ? AND status IN ?", order.ID, []string{"requested", "approved", "processing"}).First(&existingRefund).Error
 	if err == nil {
 		writeError(w, http.StatusConflict, "A refund is already pending for this order")
 		return
@@ -119,7 +119,7 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start transaction
-	tx := h.DB.Begin()
+	tx := h.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -194,7 +194,7 @@ func (h *RefundHandler) GetRefundStatus(w http.ResponseWriter, r *http.Request) 
 	refundID := vars["id"]
 
 	var refund models.RefundRecord
-	if err := h.DB.Preload("RefundLineItems").First(&refund, refundID).Error; err != nil {
+	if err := h.db.Preload("RefundLineItems").First(&refund, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund not found")
 		return
 	}
@@ -258,7 +258,7 @@ func (h *RefundHandler) ListRefunds(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var refunds []models.RefundRecord
-	if err := h.DB.Where("account_id = ?", accountID).Order("created_at DESC").Find(&refunds).Error; err != nil {
+	if err := h.db.Where("account_id = ?", accountID).Order("created_at DESC").Find(&refunds).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch refunds")
 		return
 	}
@@ -297,7 +297,7 @@ func (h *RefundHandler) CancelRefundRequest(w http.ResponseWriter, r *http.Reque
 	refundID := vars["id"]
 
 	var refund models.RefundRecord
-	if err := h.DB.First(&refund, refundID).Error; err != nil {
+	if err := h.db.First(&refund, refundID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Refund not found")
 		return
 	}
@@ -321,7 +321,7 @@ func (h *RefundHandler) CancelRefundRequest(w http.ResponseWriter, r *http.Reque
 	refund.RejectionReason = &reason
 	refund.FailedAt = &now
 
-	if err := h.DB.Save(&refund).Error; err != nil {
+	if err := h.db.Save(&refund).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to cancel refund request")
 		return
 	}

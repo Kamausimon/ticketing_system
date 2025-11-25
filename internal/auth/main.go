@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"
@@ -17,11 +18,15 @@ import (
 )
 
 type AuthHandler struct {
-	db *gorm.DB
+	db      *gorm.DB
+	metrics *analytics.PrometheusMetrics
 }
 
-func NewAuthHandler(db *gorm.DB) *AuthHandler {
-	return &AuthHandler{db: db}
+func NewAuthHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *AuthHandler {
+	return &AuthHandler{
+		db:      db,
+		metrics: metrics,
+	}
 }
 
 type RegisterRequest struct {
@@ -82,6 +87,11 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track user registration
+	if h.metrics != nil {
+		h.metrics.UsersRegistered.Inc()
+	}
+
 	response := RegisterReponse{
 		Message: "user registered successfully",
 		UserId:  user.ID,
@@ -114,8 +124,17 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		// Track failed login attempt
+		if h.metrics != nil {
+			h.metrics.TrackLoginAttempt("failed")
+		}
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "invalid credentials")
 		return
+	}
+
+	// Track successful login attempt
+	if h.metrics != nil {
+		h.metrics.TrackLoginAttempt("success")
 	}
 
 	expirationDuration := time.Hour

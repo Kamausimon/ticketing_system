@@ -37,7 +37,7 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Start transaction
-	tx := h.DB.Begin()
+	tx := h.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -140,7 +140,7 @@ func (h *InventoryHandler) GetReservation(w http.ResponseWriter, r *http.Request
 	}
 
 	var reservation models.ReservedTicket
-	if err := h.DB.First(&reservation, reservationID).Error; err != nil {
+	if err := h.db.First(&reservation, reservationID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Reservation not found")
 		return
 	}
@@ -148,8 +148,8 @@ func (h *InventoryHandler) GetReservation(w http.ResponseWriter, r *http.Request
 	// Load ticket class and event
 	var ticketClass models.TicketClass
 	var event models.Event
-	h.DB.First(&ticketClass, reservation.TicketID)
-	h.DB.First(&event, reservation.EventID)
+	h.db.First(&ticketClass, reservation.TicketID)
+	h.db.First(&event, reservation.EventID)
 
 	response := h.convertToReservationResponse(&reservation, ticketClass.Name, event.Title)
 	writeJSON(w, http.StatusOK, response)
@@ -164,7 +164,7 @@ func (h *InventoryHandler) ListUserReservations(w http.ResponseWriter, r *http.R
 	}
 
 	var reservations []models.ReservedTicket
-	query := h.DB.Where("session_id = ? AND expires > ?", sessionID, time.Now())
+	query := h.db.Where("session_id = ? AND expires > ?", sessionID, time.Now())
 
 	// Optional filter by event
 	if eventID := r.URL.Query().Get("event_id"); eventID != "" {
@@ -180,8 +180,8 @@ func (h *InventoryHandler) ListUserReservations(w http.ResponseWriter, r *http.R
 	for _, res := range reservations {
 		var ticketClass models.TicketClass
 		var event models.Event
-		h.DB.First(&ticketClass, res.TicketID)
-		h.DB.First(&event, res.EventID)
+		h.db.First(&ticketClass, res.TicketID)
+		h.db.First(&event, res.EventID)
 		responses = append(responses, h.convertToReservationResponse(&res, ticketClass.Name, event.Title))
 	}
 
@@ -201,7 +201,7 @@ func (h *InventoryHandler) ValidateReservation(w http.ResponseWriter, r *http.Re
 	}
 
 	var reservation models.ReservedTicket
-	if err := h.DB.First(&reservation, reservationID).Error; err != nil {
+	if err := h.db.First(&reservation, reservationID).Error; err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"valid":   false,
 			"reason":  "Reservation not found",
@@ -222,7 +222,7 @@ func (h *InventoryHandler) ValidateReservation(w http.ResponseWriter, r *http.Re
 
 	// Check if ticket class still has availability
 	var ticketClass models.TicketClass
-	if err := h.DB.First(&ticketClass, reservation.TicketID).Error; err != nil {
+	if err := h.db.First(&ticketClass, reservation.TicketID).Error; err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"valid":  false,
 			"reason": "Ticket class not found",
@@ -268,7 +268,7 @@ func (h *InventoryHandler) ExtendReservation(w http.ResponseWriter, r *http.Requ
 	}
 
 	var reservation models.ReservedTicket
-	if err := h.DB.First(&reservation, reservationID).Error; err != nil {
+	if err := h.db.First(&reservation, reservationID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Reservation not found")
 		return
 	}
@@ -281,7 +281,7 @@ func (h *InventoryHandler) ExtendReservation(w http.ResponseWriter, r *http.Requ
 
 	// Extend expiration
 	reservation.Expires = reservation.Expires.Add(time.Duration(req.Minutes) * time.Minute)
-	if err := h.DB.Save(&reservation).Error; err != nil {
+	if err := h.db.Save(&reservation).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to extend reservation")
 		return
 	}
@@ -289,8 +289,8 @@ func (h *InventoryHandler) ExtendReservation(w http.ResponseWriter, r *http.Requ
 	// Load relations for response
 	var ticketClass models.TicketClass
 	var event models.Event
-	h.DB.First(&ticketClass, reservation.TicketID)
-	h.DB.First(&event, reservation.EventID)
+	h.db.First(&ticketClass, reservation.TicketID)
+	h.db.First(&event, reservation.EventID)
 
 	response := h.convertToReservationResponse(&reservation, ticketClass.Name, event.Title)
 	writeJSON(w, http.StatusOK, response)

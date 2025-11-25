@@ -99,7 +99,7 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 func (h *PaymentHandler) processIntasendWebhook(event *IntasendWebhookEvent) (bool, error) {
 	// Find the payment record by API reference
 	var paymentRecord models.PaymentRecord
-	if err := h.DB.Where("external_reference = ?", event.APIRef).First(&paymentRecord).Error; err != nil {
+	if err := h.db.Where("external_reference = ?", event.APIRef).First(&paymentRecord).Error; err != nil {
 		return false, fmt.Errorf("payment record not found for API ref %s", event.APIRef)
 	}
 
@@ -122,7 +122,7 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 		return true, nil // Already processed
 	}
 
-	tx := h.DB.Begin()
+	tx := h.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -191,16 +191,16 @@ func (h *PaymentHandler) handleIntasendFailed(event *IntasendWebhookEvent, payme
 		paymentRecord.Notes = &event.FailedReason
 	}
 
-	if err := h.DB.Save(paymentRecord).Error; err != nil {
+	if err := h.db.Save(paymentRecord).Error; err != nil {
 		return false, err
 	}
 
 	// Update order status
 	if paymentRecord.OrderID != nil {
 		var order models.Order
-		if err := h.DB.First(&order, *paymentRecord.OrderID).Error; err == nil {
+		if err := h.db.First(&order, *paymentRecord.OrderID).Error; err == nil {
 			order.PaymentStatus = models.PaymentFailed
-			h.DB.Save(&order)
+			h.db.Save(&order)
 		}
 	}
 
@@ -213,7 +213,7 @@ func (h *PaymentHandler) handleIntasendProcessing(event *IntasendWebhookEvent, p
 	paymentRecord.ProcessedAt = &now
 	paymentRecord.ExternalTransactionID = &event.ID
 
-	if err := h.DB.Save(paymentRecord).Error; err != nil {
+	if err := h.db.Save(paymentRecord).Error; err != nil {
 		return false, err
 	}
 
@@ -237,7 +237,7 @@ func (h *PaymentHandler) verifyIntasendSignature(payload []byte, signature strin
 // checkDuplicateWebhook checks if we've already processed this webhook event
 func (h *PaymentHandler) checkDuplicateWebhook(eventID string) bool {
 	var count int64
-	h.DB.Model(&models.WebhookLog{}).Where("event_id = ?", eventID).Count(&count)
+	h.db.Model(&models.WebhookLog{}).Where("event_id = ?", eventID).Count(&count)
 	return count > 0
 }
 
@@ -268,7 +268,7 @@ func (h *PaymentHandler) logWebhook(provider models.WebhookProvider, eventID, pa
 		webhookLog.ErrorMessage = &errorMsg
 	}
 
-	h.DB.Create(&webhookLog)
+	h.db.Create(&webhookLog)
 }
 
 // GetWebhookLogs returns webhook logs with filtering
@@ -284,7 +284,7 @@ func (h *PaymentHandler) GetWebhookLogs(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	query := h.DB.Model(&models.WebhookLog{}).Order("created_at DESC").Limit(limit)
+	query := h.db.Model(&models.WebhookLog{}).Order("created_at DESC").Limit(limit)
 
 	if provider != "" {
 		query = query.Where("provider = ?", provider)
@@ -315,7 +315,7 @@ func (h *PaymentHandler) RetryFailedWebhook(w http.ResponseWriter, r *http.Reque
 	}
 
 	var webhookLog models.WebhookLog
-	if err := h.DB.First(&webhookLog, webhookID).Error; err != nil {
+	if err := h.db.First(&webhookLog, webhookID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Webhook log not found")
 		return
 	}
@@ -348,7 +348,7 @@ func (h *PaymentHandler) RetryFailedWebhook(w http.ResponseWriter, r *http.Reque
 		webhookLog.ErrorMessage = &errMsg
 	}
 
-	h.DB.Save(&webhookLog)
+	h.db.Save(&webhookLog)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     success,

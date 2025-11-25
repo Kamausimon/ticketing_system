@@ -19,7 +19,7 @@ func (h *InventoryHandler) GetTicketAvailability(w http.ResponseWriter, r *http.
 	}
 
 	var ticketClass models.TicketClass
-	if err := h.DB.First(&ticketClass, ticketClassID).Error; err != nil {
+	if err := h.db.First(&ticketClass, ticketClassID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Ticket class not found")
 		return
 	}
@@ -38,13 +38,13 @@ func (h *InventoryHandler) GetEventInventory(w http.ResponseWriter, r *http.Requ
 	}
 
 	var event models.Event
-	if err := h.DB.First(&event, eventID).Error; err != nil {
+	if err := h.db.First(&event, eventID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Event not found")
 		return
 	}
 
 	var ticketClasses []models.TicketClass
-	if err := h.DB.Where("event_id = ?", eventID).Order("sort_order ASC").Find(&ticketClasses).Error; err != nil {
+	if err := h.db.Where("event_id = ?", eventID).Order("sort_order ASC").Find(&ticketClasses).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch ticket classes")
 		return
 	}
@@ -84,7 +84,7 @@ func (h *InventoryHandler) GetInventoryStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	var ticketClass models.TicketClass
-	if err := h.DB.Preload("Event").First(&ticketClass, ticketClassID).Error; err != nil {
+	if err := h.db.Preload("Event").First(&ticketClass, ticketClassID).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Ticket class not found")
 		return
 	}
@@ -123,7 +123,7 @@ func (h *InventoryHandler) BulkCheckAvailability(w http.ResponseWriter, r *http.
 	}
 
 	var ticketClasses []models.TicketClass
-	if err := h.DB.Where("id IN ?", req.TicketClassIDs).Find(&ticketClasses).Error; err != nil {
+	if err := h.db.Where("id IN ?", req.TicketClassIDs).Find(&ticketClasses).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch ticket classes")
 		return
 	}
