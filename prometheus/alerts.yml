@@ -1,0 +1,213 @@
+groups:
+  - name: ticketing_business_alerts
+    interval: 30s
+    rules:
+      # Critical Business Alerts
+      - alert: NoTicketSalesLast30Min
+        expr: increase(ticketing_tickets_sold_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          category: business
+        annotations:
+          summary: "No ticket sales in last 30 minutes"
+          description: "There have been no ticket sales for any event in the last 30 minutes"
+
+      - alert: LowInventoryAlert
+        expr: ticketing_inventory_available < 10
+        for: 5m
+        labels:
+          severity: warning
+          category: inventory
+        annotations:
+          summary: "Low inventory for event {{ $labels.event_id }}"
+          description: "Only {{ $value }} tickets remaining for event {{ $labels.event_id }}, ticket class {{ $labels.ticket_class }}"
+
+      - alert: HighPaymentFailureRate
+        expr: |
+          sum(rate(ticketing_payment_failures_total[5m])) 
+          / 
+          sum(rate(ticketing_payment_attempts_total[5m])) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          category: payments
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: RevenueDropAlert
+        expr: |
+          (
+            sum(rate(ticketing_revenue_total[1h]))
+            /
+            sum(rate(ticketing_revenue_total[1h] offset 24h))
+          ) < 0.5
+        for: 15m
+        labels:
+          severity: warning
+          category: revenue
+        annotations:
+          summary: "Significant revenue drop detected"
+          description: "Current hourly revenue is less than 50% of yesterday's same hour"
+
+  - name: ticketing_performance_alerts
+    interval: 30s
+    rules:
+      # Performance Alerts
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(ticketing_http_requests_total{status=~"5.."}[5m])) 
+          / 
+          sum(rate(ticketing_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          category: performance
+        annotations:
+          summary: "High HTTP error rate"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            rate(ticketing_http_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "High request latency"
+          description: "95th percentile latency is {{ $value }}s (threshold: 2s)"
+
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95,
+            rate(ticketing_db_query_duration_seconds_bucket[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "95th percentile query time is {{ $value }}s for {{ $labels.operation }} on {{ $labels.table }}"
+
+      - alert: HighDatabaseErrorRate
+        expr: rate(ticketing_db_errors_total[5m]) > 1
+        for: 3m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "High database error rate"
+          description: "Database errors occurring at {{ $value }}/sec"
+
+  - name: ticketing_system_alerts
+    interval: 30s
+    rules:
+      # System Resource Alerts
+      - alert: HighMemoryUsage
+        expr: ticketing_memory_usage_bytes > 1073741824  # 1GB
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanize1024 }}"
+
+      - alert: HighGoroutineCount
+        expr: ticketing_goroutines > 10000
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "High number of goroutines"
+          description: "Goroutine count is {{ $value }}"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: ticketing_db_connections{state="in_use"} / ticketing_db_connections{state="max"} > 0.9
+        for: 3m
+        labels:
+          severity: critical
+          category: database
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value | humanizePercentage }} of database connections in use"
+
+  - name: ticketing_availability_alerts
+    interval: 30s
+    rules:
+      # Service Availability
+      - alert: ServiceDown
+        expr: up{job="ticketing_api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "Ticketing API is down"
+          description: "The ticketing API service has been down for more than 1 minute"
+
+      - alert: HighRequestRate
+        expr: sum(rate(ticketing_http_requests_total[1m])) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          category: traffic
+        annotations:
+          summary: "Unusually high request rate"
+          description: "Request rate is {{ $value }}/sec (may indicate DDoS or bot traffic)"
+
+  - name: ticketing_inventory_alerts
+    interval: 30s
+    rules:
+      # Inventory Management
+      - alert: InventoryOversold
+        expr: ticketing_inventory_available < 0
+        for: 1m
+        labels:
+          severity: critical
+          category: inventory
+        annotations:
+          summary: "Inventory oversold for event {{ $labels.event_id }}"
+          description: "Available inventory is negative ({{ $value }}) - data inconsistency detected"
+
+      - alert: HighInventoryReservationRate
+        expr: |
+          rate(ticketing_inventory_reserved[5m]) > 
+          rate(ticketing_orders_completed_total[5m]) * 3
+        for: 10m
+        labels:
+          severity: warning
+          category: inventory
+        annotations:
+          summary: "High reservation abandonment rate"
+          description: "Many reservations are being made but not completing"
+
+  - name: ticketing_fraud_alerts
+    interval: 30s
+    rules:
+      # Potential Fraud Detection
+      - alert: UnusuallyHighOrderValue
+        expr: ticketing_order_value > 10000
+        for: 1m
+        labels:
+          severity: warning
+          category: fraud
+        annotations:
+          summary: "Unusually high order value detected"
+          description: "Order value of {{ $value }} {{ $labels.currency }} detected"
+
+      - alert: RapidFailedLoginAttempts
+        expr: rate(ticketing_login_attempts_total{status="failed"}[1m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          category: security
+        annotations:
+          summary: "Multiple failed login attempts"
+          description: "{{ $value }}/sec failed login attempts detected"

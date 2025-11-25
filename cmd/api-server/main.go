@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"ticketing_system/internal/accounts"
+	"ticketing_system/internal/analytics"
+	"ticketing_system/internal/attendees"
 	"ticketing_system/internal/auth"
 	"ticketing_system/internal/database"
 	"ticketing_system/internal/events"
@@ -14,9 +16,12 @@ import (
 	"ticketing_system/internal/payments"
 	"ticketing_system/internal/promotions"
 	"ticketing_system/internal/refunds"
+	"ticketing_system/internal/settlement"
 	"ticketing_system/internal/tickets"
+	"ticketing_system/internal/venues"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -29,6 +34,14 @@ func main() {
 		fmt.Println("✅ Database migration completed successfully")
 	}
 
+	// Initialize Prometheus metrics
+	fmt.Println("🔧 Initializing Prometheus metrics...")
+	metrics := analytics.NewPrometheusMetrics()
+
+	// Start system metrics collector
+	analytics.StartSystemMetricsCollector(metrics, DB)
+	fmt.Println("✅ System metrics collector started")
+
 	authHandler := auth.NewAuthHandler(DB)
 	organizerHandler := organizers.NewOrganizerHandler(DB)
 	eventHandler := events.NewEventHandler(DB)
@@ -39,7 +52,17 @@ func main() {
 	inventoryHandler := inventory.NewInventoryHandler(DB)
 	paymentHandler := payments.NewPaymentHandler(DB)
 	refundHandler := refunds.NewRefundHandler(DB, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
+	settlementService := settlement.NewService(DB)
+	settlementHandler := settlement.NewSettlementHandler(settlementService)
+	attendeeHandler := attendees.NewAttendeeHandler(DB)
+	venueHandler := venues.NewVenueHandler(DB)
 	router := mux.NewRouter()
+
+	// Add Prometheus middleware
+	router.Use(analytics.PrometheusMiddleware(metrics))
+
+	// Expose Prometheus metrics endpoint
+	router.Handle("/metrics", promhttp.Handler())
 
 	//auth routes
 	router.HandleFunc("/register", authHandler.RegisterUser).Methods(http.MethodPost)
@@ -275,12 +298,103 @@ func main() {
 	// Refund routes - Organizer
 	router.HandleFunc("/organizers/refunds", refundHandler.ListRefundsByOrganizer).Methods(http.MethodGet)
 
-	server := http.Server{
+	// Settlement routes - Calculation & Preview
+	router.HandleFunc("/settlements/calculate/event/{id}", settlementHandler.CalculateEventSettlement).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/preview", settlementHandler.GetSettlementPreview).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/eligibility/event/{id}", settlementHandler.ValidateSettlementEligibility).Methods(http.MethodGet)
+
+	// Settlement routes - Batch Creation & Processing
+	router.HandleFunc("/settlements/batch", settlementHandler.CreateSettlementBatch).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/{id}", settlementHandler.GetSettlement).Methods(http.MethodGet)
+	router.HandleFunc("/settlements", settlementHandler.ListSettlements).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/{id}/approve", settlementHandler.ApproveSettlement).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/{id}/process", settlementHandler.ProcessSettlement).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/{id}/cancel", settlementHandler.CancelSettlement).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/{id}/withhold", settlementHandler.WithholdSettlement).Methods(http.MethodPost)
+
+	// Settlement routes - Reports & Analytics
+	router.HandleFunc("/settlements/{id}/report", settlementHandler.GenerateSettlementReport).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/summary/organizer/{id}", settlementHandler.GetOrganizerSettlementSummary).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/summary/platform", settlementHandler.GetPlatformSettlementSummary).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/export", settlementHandler.ExportSettlements).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/history/organizer/{id}", settlementHandler.GetSettlementHistory).Methods(http.MethodGet)
+
+	// Settlement routes - Status & Management
+	router.HandleFunc("/settlements/pending", settlementHandler.GetPendingSettlements).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/failed", settlementHandler.GetFailedSettlements).Methods(http.MethodGet)
+	router.HandleFunc("/settlements/{id}/retry", settlementHandler.RetryFailedSettlement).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/items/{id}/complete", settlementHandler.CompleteSettlementItem).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/items/{id}/fail", settlementHandler.FailSettlementItem).Methods(http.MethodPost)
+
+	// Settlement routes - Organizer View
+	router.HandleFunc("/organizers/settlements", settlementHandler.ListSettlements).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/settlements/summary", settlementHandler.GetOrganizerSettlementSummary).Methods(http.MethodGet)
+
+	// Settlement routes - Webhooks (for payment gateway callbacks)
+	router.HandleFunc("/webhooks/settlements/complete", settlementHandler.HandleSettlementWebhook).Methods(http.MethodPost)
+
+	// Attendee routes - Listing & Search
+	router.HandleFunc("/attendees", attendeeHandler.ListAttendees).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/search", attendeeHandler.SearchAttendees).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/count", attendeeHandler.GetAttendeeCount).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/{id}", attendeeHandler.GetAttendeeDetails).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/ticket", attendeeHandler.GetAttendeeByTicket).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/order/{id}", attendeeHandler.GetAttendeesByOrder).Methods(http.MethodGet)
+
+	// Attendee routes - Check-in Management
+	router.HandleFunc("/attendees/checkin", attendeeHandler.CheckInAttendee).Methods(http.MethodPost)
+	router.HandleFunc("/attendees/checkin/bulk", attendeeHandler.BulkCheckIn).Methods(http.MethodPost)
+	router.HandleFunc("/attendees/checkin/undo", attendeeHandler.UndoCheckIn).Methods(http.MethodPost)
+
+	// Attendee routes - Update & Management
+	router.HandleFunc("/attendees/{id}", attendeeHandler.UpdateAttendeeInfo).Methods(http.MethodPut)
+	router.HandleFunc("/attendees/{id}/no-show", attendeeHandler.MarkAttendeeAsNoShow).Methods(http.MethodPost)
+	router.HandleFunc("/attendees/{id}/transfer", attendeeHandler.TransferAttendee).Methods(http.MethodPost)
+
+	// Attendee routes - Export & Reports
+	router.HandleFunc("/attendees/export", attendeeHandler.ExportAttendeeList).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/badges", attendeeHandler.ExportBadgeData).Methods(http.MethodGet)
+
+	// Attendee routes - Analytics
+	router.HandleFunc("/attendees/stats", attendeeHandler.GetAttendanceStats).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/report/checkin", attendeeHandler.GetCheckInReport).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/timeline", attendeeHandler.GetAttendanceTimeline).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/no-shows", attendeeHandler.GetNoShowList).Methods(http.MethodGet)
+
+	// Attendee routes - Organizer View
+	router.HandleFunc("/organizers/attendees", attendeeHandler.ListEventAttendees).Methods(http.MethodGet)
+
+	// Venue routes - CRUD Operations
+	router.HandleFunc("/venues", venueHandler.CreateVenue).Methods(http.MethodPost)
+	router.HandleFunc("/venues", venueHandler.ListVenues).Methods(http.MethodGet)
+	router.HandleFunc("/venues/{id}", venueHandler.GetVenueDetails).Methods(http.MethodGet)
+	router.HandleFunc("/venues/{id}", venueHandler.UpdateVenue).Methods(http.MethodPut)
+	router.HandleFunc("/venues/{id}", venueHandler.DeleteVenue).Methods(http.MethodDelete)
+
+	// Venue routes - Search & Discovery
+	router.HandleFunc("/venues/search/location", venueHandler.SearchVenuesByLocation).Methods(http.MethodGet)
+	router.HandleFunc("/venues/type", venueHandler.GetVenuesByType).Methods(http.MethodGet)
+
+	// Venue routes - Statistics & Information
+	router.HandleFunc("/venues/{id}/stats", venueHandler.GetVenueStats).Methods(http.MethodGet)
+	router.HandleFunc("/venues/{id}/events", venueHandler.GetVenueEvents).Methods(http.MethodGet)
+
+	// Venue routes - Availability Management
+	router.HandleFunc("/venues/{id}/availability", venueHandler.CheckVenueAvailability).Methods(http.MethodGet)
+	router.HandleFunc("/venues/{id}/calendar", venueHandler.GetVenueCalendar).Methods(http.MethodGet)
+	router.HandleFunc("/venues/available", venueHandler.FindAvailableVenues).Methods(http.MethodGet)
+
+	// Venue routes - Advanced Operations
+	router.HandleFunc("/venues/{id}/restore", venueHandler.RestoreVenue).Methods(http.MethodPost)
+	router.HandleFunc("/venues/{id}/permanent", venueHandler.PermanentlyDeleteVenue).Methods(http.MethodDelete)
+
+	server := &http.Server{
 		Addr:    ":8080",
 		Handler: router,
 	}
 
-	fmt.Println("\nserver starting on port 8080")
+	fmt.Println("\n🚀 Server starting on port 8080")
+	fmt.Println("📊 Prometheus metrics available at http://localhost:8080/metrics")
 	server.ListenAndServe()
 
 }
