@@ -2,43 +2,120 @@ package tickets
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"ticketing_system/internal/models"
+	"ticketing_system/pkg/pdf"
+	"ticketing_system/pkg/qrcode"
 )
 
 // generateTicketPDF generates a PDF for a ticket
 func (h *TicketHandler) generateTicketPDF(ticket *models.Ticket) (string, error) {
-	// In production, this would use a PDF library like:
-	// - github.com/jung-kurt/gofpdf
-	// - github.com/johnfercher/maroto
-	// - or integrate with an external service
+	// Load full ticket data with relations
+	var fullTicket models.Ticket
+	if err := h.db.Preload("OrderItem.TicketClass.Event.Venue").
+		Preload("OrderItem.Order").
+		Where("id = ?", ticket.ID).
+		First(&fullTicket).Error; err != nil {
+		return "", fmt.Errorf("failed to load ticket data: %w", err)
+	}
 
-	// For now, return a mock PDF path
-	pdfFileName := fmt.Sprintf("ticket_%s.pdf", ticket.TicketNumber)
-	pdfPath := fmt.Sprintf("/storage/tickets/%d/%s", ticket.OrderItem.OrderID, pdfFileName)
+	// Get event and venue info
+	event := fullTicket.OrderItem.TicketClass.Event
+	order := fullTicket.OrderItem.Order
+	ticketClass := fullTicket.OrderItem.TicketClass
 
-	// In production, you would:
-	// 1. Load the ticket with all related data (event, venue, etc.)
-	// 2. Generate QR code image from ticket.QRCode
-	// 3. Create PDF with:
-	//    - Event name, date, location
-	//    - Ticket number and class
-	//    - Holder name and email
-	//    - QR code for scanning
-	//    - Barcode (optional)
-	//    - Terms and conditions
-	//    - Event branding/logo
-	// 4. Save PDF to storage
-	// 5. Return the file path or URL
+	// Generate QR code
+	qrContent := fmt.Sprintf("TICKET:%s|EVENT:%d|ATTENDEE:%s",
+		fullTicket.TicketNumber,
+		event.ID,
+		fullTicket.HolderName,
+	)
 
-	fmt.Printf("[Mock] Generated PDF for ticket %s at %s\n", ticket.TicketNumber, pdfPath)
+	qrGenerator := qrcode.NewGenerator().WithSize(512)
+	qrBytes, err := qrGenerator.GenerateBytes(qrContent)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate QR code: %w", err)
+	}
 
+	// Prepare ticket data for PDF
+	ticketData := pdf.TicketData{
+		TicketNumber:  fullTicket.TicketNumber,
+		EventName:     event.Title,
+		EventDate:     event.StartDate,
+		EventTime:     event.StartDate.Format("3:04 PM"),
+		VenueName:     event.Location, // Use event location as fallback
+		VenueAddress:  event.Location,
+		AttendeeName:  fullTicket.HolderName,
+		AttendeeEmail: fullTicket.HolderEmail,
+		TicketType:    ticketClass.Name,
+		SeatNumber:    "", // TODO: Add seat assignment if available
+		Price:         float64(fullTicket.OrderItem.UnitPrice),
+		Currency:      "USD", // TODO: Get from order or account settings
+		QRCode:        qrBytes,
+		OrderNumber:   fmt.Sprintf("ORD-%d", order.ID),
+		PurchaseDate:  order.CreatedAt,
+		SpecialNotes:  "", // TODO: Add from event or ticket class
+	}
+
+	// If venue info is available, use it
+	if len(event.Venue) > 0 {
+		venue := event.Venue[0]
+		ticketData.VenueName = venue.VenueName
+		ticketData.VenueAddress = fmt.Sprintf("%s, %s, %s %s",
+			venue.Address,
+			venue.City,
+			venue.State,
+			venue.ZipCode,
+		)
+	}
+
+	// Create storage directory
+	storageDir := filepath.Join("storage", "tickets", fmt.Sprintf("%d", order.ID))
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	// Generate PDF
+	pdfGenerator := pdf.NewTicketGenerator()
+	pdfFileName := fmt.Sprintf("ticket_%s.pdf", fullTicket.TicketNumber)
+	pdfPath := filepath.Join(storageDir, pdfFileName)
+
+	if err := pdfGenerator.GenerateToFile(ticketData, pdfPath); err != nil {
+		return "", fmt.Errorf("failed to generate PDF: %w", err)
+	}
+
+	fmt.Printf("✅ Generated PDF for ticket %s at %s\n", fullTicket.TicketNumber, pdfPath)
+
+	// Return relative path for storage
 	return pdfPath, nil
 }
 
 // RegeneratePDF regenerates the PDF for a ticket
 func (h *TicketHandler) RegeneratePDF(ticket *models.Ticket) (string, error) {
-	// Same as generateTicketPDF but might include version numbering
 	return h.generateTicketPDF(ticket)
+}
+
+// GenerateBatchPDFs generates PDFs for multiple tickets
+func (h *TicketHandler) GenerateBatchPDFs(tickets []models.Ticket) (map[uint]string, error) {
+	results := make(map[uint]string)
+	errors := make([]error, 0)
+
+	for _, ticket := range tickets {
+		pdfPath, err := h.generateTicketPDF(&ticket)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("ticket %s: %w", ticket.TicketNumber, err))
+			continue
+		}
+		results[ticket.ID] = pdfPath
+	}
+
+	if len(errors) > 0 {
+		return results, fmt.Errorf("failed to generate %d PDFs: %v", len(errors), errors[0])
+	}
+
+	return results, nil
 }
 
 // Example PDF generation with actual library (commented out):

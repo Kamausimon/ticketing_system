@@ -7,10 +7,12 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/attendees"
 	"ticketing_system/internal/auth"
+	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
 	"ticketing_system/internal/events"
 	"ticketing_system/internal/inventory"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 	"ticketing_system/internal/orders"
 	"ticketing_system/internal/organizers"
 	"ticketing_system/internal/payments"
@@ -41,6 +43,19 @@ func main() {
 	// Start system metrics collector
 	analytics.StartSystemMetricsCollector(metrics, DB)
 	fmt.Println("✅ System metrics collector started")
+
+	// Load configuration for notifications
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("⚠️  Warning: Failed to load config for notifications: %v\n", err)
+		fmt.Println("⚠️  Notification service will not be available")
+	}
+	var notificationHandler *notifications.Handler
+	if cfg != nil {
+		notificationService := notifications.NewNotificationService(cfg)
+		notificationHandler = notifications.NewHandler(notificationService)
+		fmt.Println("✅ Notification service initialized")
+	}
 
 	authHandler := auth.NewAuthHandler(DB, metrics)
 	organizerHandler := organizers.NewOrganizerHandler(DB, metrics)
@@ -387,6 +402,15 @@ func main() {
 	// Venue routes - Advanced Operations
 	router.HandleFunc("/venues/{id}/restore", venueHandler.RestoreVenue).Methods(http.MethodPost)
 	router.HandleFunc("/venues/{id}/permanent", venueHandler.PermanentlyDeleteVenue).Methods(http.MethodDelete)
+
+	// Notification routes (if service is available)
+	if notificationHandler != nil {
+		router.HandleFunc("/notifications/test", notificationHandler.TestEmail).Methods(http.MethodPost)
+		router.HandleFunc("/notifications/welcome", notificationHandler.SendWelcomeEmail).Methods(http.MethodPost)
+		router.HandleFunc("/notifications/verification", notificationHandler.SendVerificationEmail).Methods(http.MethodPost)
+		router.HandleFunc("/notifications/password-reset", notificationHandler.SendPasswordReset).Methods(http.MethodPost)
+		fmt.Println("✅ Notification routes registered")
+	}
 
 	server := &http.Server{
 		Addr:    ":8080",

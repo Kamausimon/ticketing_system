@@ -143,6 +143,18 @@ func (h *TicketHandler) GenerateTickets(w http.ResponseWriter, r *http.Request) 
 			tx.Model(&models.OrderItem{}).Select("id").Where("order_id = ?", order.ID)).
 		Find(&tickets)
 
+	// Generate PDFs for all tickets asynchronously
+	go func(ticketList []models.Ticket) {
+		for i := range ticketList {
+			if pdfPath, err := h.generateTicketPDF(&ticketList[i]); err == nil {
+				// Update ticket with PDF path
+				h.db.Model(&ticketList[i]).Update("pdf_path", pdfPath)
+			} else {
+				fmt.Printf("⚠️ Failed to generate PDF for ticket %s: %v\n", ticketList[i].TicketNumber, err)
+			}
+		}
+	}(tickets)
+
 	// Convert to response
 	ticketResponses := make([]TicketResponse, len(tickets))
 	for i, ticket := range tickets {

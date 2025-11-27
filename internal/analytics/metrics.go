@@ -18,6 +18,7 @@ type PrometheusMetrics struct {
 	TicketsCheckedIn   *prometheus.CounterVec
 	TicketsRefunded    *prometheus.CounterVec
 	TicketsTransferred prometheus.Counter
+	TicketDownloads    *prometheus.CounterVec
 
 	// Business Metrics - Orders
 	OrdersCreated       *prometheus.CounterVec
@@ -137,6 +138,13 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 				Name: "ticketing_tickets_transferred_total",
 				Help: "Total number of tickets transferred",
 			},
+		),
+		TicketDownloads: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "ticketing_ticket_downloads_total",
+				Help: "Total number of ticket PDF downloads",
+			},
+			[]string{"event_id", "order_id"},
 		),
 
 		// Orders
