@@ -17,7 +17,7 @@ using only Go's standard library `net/smtp` package.
 
 func main() {
 	fmt.Println("📧 Go Built-in SMTP Email Example")
-	fmt.Println("===================================\n")
+	fmt.Println("===================================")
 
 	// Example 1: Gmail SMTP
 	fmt.Println("Example 1: Gmail SMTP Configuration")
@@ -38,54 +38,54 @@ func main() {
 
 	// Example 2: Outlook/Hotmail SMTP
 	fmt.Println("Example 2: Outlook SMTP Configuration")
-	outlookConfig := &config.EmailConfig{
-		Provider:   "outlook",
-		Host:       "smtp-mail.outlook.com",
-		Port:       587,
-		Username:   "your-email@outlook.com",
-		Password:   "your-password",
-		FromEmail:  "your-email@outlook.com",
-		FromName:   "Your App Name",
-		UseTLS:     true,
-		UseSSL:     false,
-		MaxRetries: 3,
-		TestMode:   false,
-	}
-	fmt.Printf("✅ Outlook: %s:%d (TLS)\n\n", outlookConfig.Host, outlookConfig.Port)
+	// outlookConfig := &config.EmailConfig{
+	// 	Provider:   "outlook",
+	// 	Host:       "smtp-mail.outlook.com",
+	// 	Port:       587,
+	// 	Username:   "your-email@outlook.com",
+	// 	Password:   "your-password",
+	// 	FromEmail:  "your-email@outlook.com",
+	// 	FromName:   "Your App Name",
+	// 	UseTLS:     true,
+	// 	UseSSL:     false,
+	// 	MaxRetries: 3,
+	// 	TestMode:   false,
+	// }
+	// fmt.Printf("✅ Outlook: %s:%d (TLS)\n\n", outlookConfig.Host, outlookConfig.Port)
 
 	// Example 3: Custom/Local SMTP Server (no auth)
 	fmt.Println("Example 3: Local SMTP Server (No Authentication)")
-	localConfig := &config.EmailConfig{
-		Provider:   "local",
-		Host:       "localhost",
-		Port:       25,
-		Username:   "", // No auth required
-		Password:   "", // No auth required
-		FromEmail:  "noreply@localhost",
-		FromName:   "Local Ticketing System",
-		UseTLS:     false,
-		UseSSL:     false,
-		MaxRetries: 1,
-		TestMode:   false,
-	}
-	fmt.Printf("✅ Local: %s:%d (No encryption, no auth)\n\n", localConfig.Host, localConfig.Port)
+	// localConfig := &config.EmailConfig{
+	// 	Provider:   "local",
+	// 	Host:       "localhost",
+	// 	Port:       25,
+	// 	Username:   "", // No auth required
+	// 	Password:   "", // No auth required
+	// 	FromEmail:  "noreply@localhost",
+	// 	FromName:   "Local Ticketing System",
+	// 	UseTLS:     false,
+	// 	UseSSL:     false,
+	// 	MaxRetries: 1,
+	// 	TestMode:   false,
+	// }
+	// fmt.Printf("✅ Local: %s:%d (No encryption, no auth)\n\n", localConfig.Host, localConfig.Port)
 
 	// Example 4: Mailtrap (for testing only)
 	fmt.Println("Example 4: Mailtrap SMTP Configuration (Testing)")
-	mailtrapConfig := &config.EmailConfig{
-		Provider:   "mailtrap",
-		Host:       "smtp.mailtrap.io",
-		Port:       587, // or 2525
-		Username:   "your-mailtrap-username",
-		Password:   "your-mailtrap-password",
-		FromEmail:  "test@example.com",
-		FromName:   "Test Sender",
-		UseTLS:     true,
-		UseSSL:     false,
-		MaxRetries: 3,
-		TestMode:   false,
-	}
-	fmt.Printf("✅ Mailtrap: %s:%d (TLS)\n\n", mailtrapConfig.Host, mailtrapConfig.Port)
+	// mailtrapConfig := &config.EmailConfig{
+	// 	Provider:   "mailtrap",
+	// 	Host:       "smtp.mailtrap.io",
+	// 	Port:       587, // or 2525
+	// 	Username:   "your-mailtrap-username",
+	// 	Password:   "your-mailtrap-password",
+	// 	FromEmail:  "test@example.com",
+	// 	FromName:   "Test Sender",
+	// 	UseTLS:     true,
+	// 	UseSSL:     false,
+	// 	MaxRetries: 3,
+	// 	TestMode:   false,
+	// }
+	// fmt.Printf("✅ Mailtrap: %s:%d (TLS)\n\n", mailtrapConfig.Host, mailtrapConfig.Port)
 
 	// Use the configuration you want
 	cfg := &config.Config{
@@ -106,7 +106,7 @@ func main() {
 	if err != nil {
 		log.Printf("❌ Failed to send email: %v\n", err)
 	} else {
-		fmt.Println("✅ Email sent successfully!\n")
+		fmt.Println("✅ Email sent successfully!")
 	}
 
 	// Send an HTML email
@@ -145,7 +145,7 @@ func main() {
 	if err != nil {
 		log.Printf("❌ Failed to send HTML email: %v\n", err)
 	} else {
-		fmt.Println("✅ HTML email sent successfully!\n")
+		fmt.Println("✅ HTML email sent successfully!")
 	}
 
 	// Send using template
@@ -154,7 +154,7 @@ func main() {
 	if err != nil {
 		log.Printf("❌ Failed to send welcome email: %v\n", err)
 	} else {
-		fmt.Println("✅ Welcome email sent!\n")
+		fmt.Println("✅ Welcome email sent!")
 	}
 
 	fmt.Println("🎉 Done! All emails sent using Go's built-in SMTP.")
