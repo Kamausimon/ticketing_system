@@ -62,15 +62,28 @@ func (h *OrganizerHandler) GetOrganizerDashboard(w http.ResponseWriter, r *http.
 	// Get dashboard statistics
 	var totalEvents, activeEvents int64
 	var totalTicketsSold int64
+	var totalRevenue int64
 
 	h.db.Model(&models.Event{}).Where("organizer_id = ?", organizer.ID).Count(&totalEvents)
 	h.db.Model(&models.Event{}).Where("organizer_id = ? AND status IN ?", organizer.ID, []string{"live", "pending_approval"}).Count(&activeEvents)
 
-	// TODO: Calculate total tickets sold and revenue from orders/tickets
-	// This would require joins with orders, order_items, and tickets tables
-	totalTicketsSold = 0  // Placeholder
-	totalRevenue := 0.0   // Placeholder
-	pendingPayouts := 0.0 // Placeholder
+	// Calculate total tickets sold and revenue from completed orders
+	// Join through: Event -> Order -> OrderItem -> Ticket
+	h.db.Model(&models.Ticket{}).
+		Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("JOIN events ON events.id = orders.event_id").
+		Where("events.organizer_id = ? AND orders.status IN ?", organizer.ID, []string{"paid", "fulfilled"}).
+		Count(&totalTicketsSold)
+
+	// Calculate total revenue from completed orders
+	h.db.Model(&models.Order{}).
+		Joins("JOIN events ON events.id = orders.event_id").
+		Where("events.organizer_id = ? AND orders.status IN ?", organizer.ID, []string{"paid", "fulfilled"}).
+		Select("COALESCE(SUM(total_amount), 0)").
+		Row().Scan(&totalRevenue)
+
+	pendingPayouts := 0.0 // TODO: Calculate from settlement records
 
 	// Get recent events (last 5)
 	var events []models.Event
@@ -78,13 +91,28 @@ func (h *OrganizerHandler) GetOrganizerDashboard(w http.ResponseWriter, r *http.
 
 	var recentEvents []EventSummary
 	for _, event := range events {
+		// Calculate event-specific tickets sold and revenue
+		var eventTickets int64
+		var eventRevenue int64
+
+		h.db.Model(&models.Ticket{}).
+			Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
+			Joins("JOIN orders ON orders.id = order_items.order_id").
+			Where("orders.event_id = ? AND orders.status IN ?", event.ID, []string{"paid", "fulfilled"}).
+			Count(&eventTickets)
+
+		h.db.Model(&models.Order{}).
+			Where("event_id = ? AND status IN ?", event.ID, []string{"paid", "fulfilled"}).
+			Select("COALESCE(SUM(total_amount), 0)").
+			Row().Scan(&eventRevenue)
+
 		recentEvents = append(recentEvents, EventSummary{
 			ID:          event.ID,
 			Title:       event.Title,
 			StartDate:   event.StartDate,
 			Status:      string(event.Status),
-			TicketsSold: 0, // TODO: Calculate from actual sales
-			Revenue:     0, // TODO: Calculate from actual sales
+			TicketsSold: int(eventTickets),
+			Revenue:     float64(eventRevenue) / 100.0, // Convert from cents to currency
 		})
 	}
 
@@ -92,7 +120,7 @@ func (h *OrganizerHandler) GetOrganizerDashboard(w http.ResponseWriter, r *http.
 		TotalEvents:      int(totalEvents),
 		ActiveEvents:     int(activeEvents),
 		TotalTicketsSold: int(totalTicketsSold),
-		TotalRevenue:     totalRevenue,
+		TotalRevenue:     float64(totalRevenue) / 100.0, // Convert from cents to currency
 		PendingPayouts:   pendingPayouts,
 		RecentEvents:     recentEvents,
 	}
@@ -130,15 +158,44 @@ func (h *OrganizerHandler) GetQuickStats(w http.ResponseWriter, r *http.Request)
 	h.db.Model(&models.Event{}).Where("organizer_id = ? AND created_at >= ?", organizer.ID, thisMonthStart).Count(&thisMonthEvents)
 	h.db.Model(&models.Event{}).Where("organizer_id = ? AND created_at >= ? AND created_at <= ?", organizer.ID, lastMonthStart, lastMonthEnd).Count(&lastMonthEvents)
 
-	// TODO: Calculate revenue and ticket stats from actual sales data
+	// Calculate this month's revenue and tickets
+	var thisMonthRevenue, lastMonthRevenue int64
+	var thisMonthTickets, lastMonthTickets int64
+
+	h.db.Model(&models.Order{}).
+		Joins("JOIN events ON events.id = orders.event_id").
+		Where("events.organizer_id = ? AND orders.status IN ? AND orders.created_at >= ?", organizer.ID, []string{"paid", "fulfilled"}, thisMonthStart).
+		Select("COALESCE(SUM(total_amount), 0)").
+		Row().Scan(&thisMonthRevenue)
+
+	h.db.Model(&models.Order{}).
+		Joins("JOIN events ON events.id = orders.event_id").
+		Where("events.organizer_id = ? AND orders.status IN ? AND orders.created_at >= ? AND orders.created_at <= ?", organizer.ID, []string{"paid", "fulfilled"}, lastMonthStart, lastMonthEnd).
+		Select("COALESCE(SUM(total_amount), 0)").
+		Row().Scan(&lastMonthRevenue)
+
+	h.db.Model(&models.Ticket{}).
+		Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("JOIN events ON events.id = orders.event_id").
+		Where("events.organizer_id = ? AND orders.status IN ? AND orders.created_at >= ?", organizer.ID, []string{"paid", "fulfilled"}, thisMonthStart).
+		Count(&thisMonthTickets)
+
+	h.db.Model(&models.Ticket{}).
+		Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Joins("JOIN events ON events.id = orders.event_id").
+		Where("events.organizer_id = ? AND orders.status IN ? AND orders.created_at >= ? AND orders.created_at <= ?", organizer.ID, []string{"paid", "fulfilled"}, lastMonthStart, lastMonthEnd).
+		Count(&lastMonthTickets)
+
 	stats := QuickStats{}
 	stats.ThisMonth.Events = int(thisMonthEvents)
-	stats.ThisMonth.Revenue = 0.0 // Placeholder
-	stats.ThisMonth.Tickets = 0   // Placeholder
+	stats.ThisMonth.Revenue = float64(thisMonthRevenue) / 100.0 // Convert from cents
+	stats.ThisMonth.Tickets = int(thisMonthTickets)
 
 	stats.LastMonth.Events = int(lastMonthEvents)
-	stats.LastMonth.Revenue = 0.0 // Placeholder
-	stats.LastMonth.Tickets = 0   // Placeholder
+	stats.LastMonth.Revenue = float64(lastMonthRevenue) / 100.0 // Convert from cents
+	stats.LastMonth.Tickets = int(lastMonthTickets)
 
 	json.NewEncoder(w).Encode(stats)
 }
