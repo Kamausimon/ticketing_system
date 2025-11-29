@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"ticketing_system/internal/accounts"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/attendees"
@@ -25,6 +26,7 @@ import (
 	"ticketing_system/pkg/ratelimit"
 
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -67,6 +69,9 @@ func main() {
 	} else {
 		authHandler = auth.NewAuthHandler(DB, metrics)
 	}
+
+	// Initialize 2FA handler
+	twoFactorHandler := auth.NewTwoFactorHandler(DB, "Ticketing System")
 	var organizerHandler *organizers.OrganizerHandler
 	if notificationService != nil {
 		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService)
@@ -136,6 +141,23 @@ func main() {
 	router.HandleFunc("/verify-email", authLimiter.HandlerFunc(authHandler.VerifyEmail)).Methods(http.MethodPost)
 	router.HandleFunc("/resend-verification", authLimiter.HandlerFunc(authHandler.ResendVerification)).Methods(http.MethodPost)
 	router.HandleFunc("/verify-email/status", authHandler.CheckEmailVerificationStatus).Methods(http.MethodGet)
+
+	// Two-Factor Authentication routes - with rate limiting
+	router.HandleFunc("/2fa/setup", authLimiter.HandlerFunc(twoFactorHandler.Setup2FA)).Methods(http.MethodPost)
+	router.HandleFunc("/2fa/verify-setup", authLimiter.HandlerFunc(twoFactorHandler.VerifySetup)).Methods(http.MethodPost)
+	router.HandleFunc("/2fa/verify-login", loginLimiter.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := godotenv.Load(".env")
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "error loading env variables")
+			return
+		}
+		tokenSecret := os.Getenv("JWTSECRET")
+		twoFactorHandler.VerifyLogin(w, r, tokenSecret)
+	})).Methods(http.MethodPost)
+	router.HandleFunc("/2fa/disable", authLimiter.HandlerFunc(twoFactorHandler.Disable2FA)).Methods(http.MethodPost)
+	router.HandleFunc("/2fa/status", twoFactorHandler.GetStatus).Methods(http.MethodGet)
+	router.HandleFunc("/2fa/recovery-codes", authLimiter.HandlerFunc(twoFactorHandler.RegenerateRecoveryCodes)).Methods(http.MethodPost)
+	router.HandleFunc("/2fa/attempts", twoFactorHandler.GetRecentAttempts).Methods(http.MethodGet)
 
 	//organizer routes
 	router.HandleFunc("/organizers/apply", organizerHandler.OrganizerApply).Methods(http.MethodPost)

@@ -2,6 +2,7 @@ package qrcode
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"image"
 	"image/color"
@@ -157,4 +158,16 @@ func GenerateToFile(content, filename string) error {
 // GenerateCustom creates a QR code with custom size
 func GenerateCustom(content string, size int) ([]byte, error) {
 	return NewGenerator().WithSize(size).GenerateBytes(content)
+}
+
+// GenerateQRCodeBase64 generates a QR code and returns it as base64-encoded PNG data URI
+func GenerateQRCodeBase64(content string, size int) (string, error) {
+	qrBytes, err := NewGenerator().WithSize(size).GenerateBytes(content)
+	if err != nil {
+		return "", err
+	}
+
+	// Return as data URI with base64 encoding
+	encoded := base64.StdEncoding.EncodeToString(qrBytes)
+	return "data:image/png;base64," + encoded, nil
 }

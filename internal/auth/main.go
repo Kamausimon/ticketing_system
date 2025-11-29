@@ -183,6 +183,28 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if 2FA is enabled for this user
+	var twoFactorAuth models.TwoFactorAuth
+	has2FA := h.db.Where("user_id = ? AND enabled = ?", user.ID, true).First(&twoFactorAuth).Error == nil
+
+	if has2FA {
+		// 2FA is enabled - return partial token and require 2FA verification
+		// Create a temporary short-lived token for 2FA verification only
+		tempToken, err := MakeJWT(user.ID, tokenSecret, 15*time.Minute) // 15 min temp token
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "error generating verification token")
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":      "Two-factor authentication required",
+			"requires_2fa": true,
+			"temp_token":   tempToken, // Temporary token for 2FA verification
+			"user_id":      user.ID,
+		})
+		return
+	}
+
 	// Track successful login attempt
 	if h.metrics != nil {
 		h.metrics.TrackLoginAttempt("success")

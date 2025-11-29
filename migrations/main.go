@@ -14,7 +14,7 @@ import (
 
 func main() {
 	// Try to load .env file, but don't fail if it doesn't exist
-	err := godotenv.Load("../.env") // Look in parent directory
+	err := godotenv.Load(".env") // Look in parent directory
 	if err != nil {
 		log.Println("⚠️  No .env file found, using environment variables or defaults", err)
 	}
@@ -124,6 +124,10 @@ func runMigrations(db *gorm.DB) error {
 		&models.PasswordReset{},
 		&models.PasswordResetAttempt{},
 		&models.ResetConfiguration{},
+		&models.TwoFactorAuth{},
+		&models.RecoveryCode{},
+		&models.TwoFactorAttempt{},
+		&models.TwoFactorSession{},
 	)
 	if err != nil {
 		return err
@@ -183,6 +187,10 @@ func createCustomIndexes(db *gorm.DB) error {
 		// Security indexes
 		"CREATE INDEX IF NOT EXISTS idx_password_resets_cleanup ON password_resets(cleanup_after, should_cleanup) WHERE should_cleanup = true;",
 		"CREATE INDEX IF NOT EXISTS idx_security_events ON security_metrics(event_type, timestamp, severity);",
+		"CREATE INDEX IF NOT EXISTS idx_2fa_enabled_users ON two_factor_auths(user_id, enabled) WHERE enabled = true;",
+		"CREATE INDEX IF NOT EXISTS idx_recovery_codes_unused ON recovery_codes(two_factor_auth_id, used) WHERE used = false;",
+		"CREATE INDEX IF NOT EXISTS idx_2fa_attempts_recent ON two_factor_attempts(user_id, attempted_at, success);",
+		"CREATE INDEX IF NOT EXISTS idx_2fa_sessions_active ON two_factor_sessions(user_id, expires_at, verified) WHERE verified = false;",
 
 		// Analytics indexes
 		"CREATE INDEX IF NOT EXISTS idx_metrics_time_series ON system_metrics(metric_name, granularity, timestamp);",
