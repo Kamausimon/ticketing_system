@@ -11,6 +11,7 @@ import (
 	"ticketing_system/internal/database"
 	"ticketing_system/internal/events"
 	"ticketing_system/internal/inventory"
+	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
 	"ticketing_system/internal/orders"
@@ -21,6 +22,7 @@ import (
 	"ticketing_system/internal/settlement"
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
+	"ticketing_system/pkg/ratelimit"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -29,7 +31,7 @@ import (
 func main() {
 	DB := database.Init()
 
-	err := DB.AutoMigrate(&models.User{})
+	err := DB.AutoMigrate(&models.User{}, &models.EmailVerification{})
 	if err != nil {
 		fmt.Printf("Migration failed: %v\n", err)
 	} else {
@@ -51,18 +53,31 @@ func main() {
 		fmt.Println("⚠️  Notification service will not be available")
 	}
 	var notificationHandler *notifications.Handler
+	var notificationService *notifications.NotificationService
 	if cfg != nil {
-		notificationService := notifications.NewNotificationService(cfg)
+		notificationService = notifications.NewNotificationService(cfg)
 		notificationHandler = notifications.NewHandler(notificationService)
 		fmt.Println("✅ Notification service initialized")
 	}
 
-	authHandler := auth.NewAuthHandler(DB, metrics)
+	// Initialize auth handler with notification service
+	var authHandler *auth.AuthHandler
+	if notificationService != nil {
+		authHandler = auth.NewAuthHandlerWithNotifications(DB, metrics, notificationService)
+	} else {
+		authHandler = auth.NewAuthHandler(DB, metrics)
+	}
 	organizerHandler := organizers.NewOrganizerHandler(DB, metrics)
 	eventHandler := events.NewEventHandler(DB, metrics)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
 	orderHandler := orders.NewOrderHandler(DB, metrics)
-	ticketHandler := tickets.NewTicketHandler(DB, metrics)
+	var ticketHandler *tickets.TicketHandler
+	if cfg != nil && cfg.Email.Host != "" {
+		notificationService := notifications.NewNotificationService(cfg)
+		ticketHandler = tickets.NewTicketHandlerWithNotifications(DB, metrics, notificationService)
+	} else {
+		ticketHandler = tickets.NewTicketHandler(DB, metrics)
+	}
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics)
@@ -73,18 +88,49 @@ func main() {
 	venueHandler := venues.NewVenueHandler(DB, metrics)
 	router := mux.NewRouter()
 
+	// Initialize rate limiters for different endpoint categories
+	gov := ratelimit.NewTokenBucketGovernor()
+
+	// Configure rate limiters
+	gov.GetOrCreate("auth", ratelimit.Presets.Auth)         // 10 req/min per IP
+	gov.GetOrCreate("login", ratelimit.Presets.Login)       // 5 attempts/min per IP (strict login protection)
+	gov.GetOrCreate("payment", ratelimit.Presets.Payment)   // 5 req/min per IP
+	gov.GetOrCreate("api", ratelimit.Presets.API)           // 100 req/s per IP
+	gov.GetOrCreate("download", ratelimit.Presets.Download) // 3 req/s per user
+	gov.GetOrCreate("inventory", ratelimit.Config{
+		RequestsPerSecond: 50,
+		BurstSize:         100,
+		CleanupInterval:   5 * 60 * 60,
+	})
+
+	// Create rate limiting middleware wrappers
+	authLimiter := ratelimit.NewMiddleware(gov.Get("auth"), ratelimit.KeyFuncs.ByIP)
+	loginLimiter := ratelimit.NewMiddleware(gov.Get("login"), ratelimit.KeyFuncs.ByIP)
+	paymentLimiter := ratelimit.NewMiddleware(gov.Get("payment"), ratelimit.KeyFuncs.ByIP)
+	apiLimiter := ratelimit.NewMiddleware(gov.Get("api"), ratelimit.KeyFuncs.ByIP)
+	downloadLimiter := ratelimit.NewMiddleware(gov.Get("download"), ratelimit.KeyFuncs.ByIP)
+	inventoryLimiter := ratelimit.NewMiddleware(gov.Get("inventory"), ratelimit.KeyFuncs.ByIP)
+
+	// Create email verification middleware
+	emailVerificationMiddleware := middleware.RequireEmailVerification(DB)
+
 	// Add Prometheus middleware
 	router.Use(analytics.PrometheusMiddleware(metrics))
 
 	// Expose Prometheus metrics endpoint
 	router.Handle("/metrics", promhttp.Handler())
 
-	//auth routes
-	router.HandleFunc("/register", authHandler.RegisterUser).Methods(http.MethodPost)
-	router.HandleFunc("/login", authHandler.LoginUser).Methods(http.MethodPost)
-	router.HandleFunc("/logout", authHandler.LogoutUser).Methods(http.MethodPost)
-	router.HandleFunc("/forgot-passoword", authHandler.ForgotPassword).Methods(http.MethodPost)
-	router.HandleFunc("/resetPassword", authHandler.ResetPassword).Methods(http.MethodPost)
+	//auth routes - with rate limiting
+	router.HandleFunc("/register", authLimiter.HandlerFunc(authHandler.RegisterUser)).Methods(http.MethodPost)
+	router.HandleFunc("/login", loginLimiter.HandlerFunc(authHandler.LoginUser)).Methods(http.MethodPost)
+	router.HandleFunc("/logout", authLimiter.HandlerFunc(authHandler.LogoutUser)).Methods(http.MethodPost)
+	router.HandleFunc("/forgot-passoword", authLimiter.HandlerFunc(authHandler.ForgotPassword)).Methods(http.MethodPost)
+	router.HandleFunc("/resetPassword", authLimiter.HandlerFunc(authHandler.ResetPassword)).Methods(http.MethodPost)
+
+	// Email verification routes
+	router.HandleFunc("/verify-email", authLimiter.HandlerFunc(authHandler.VerifyEmail)).Methods(http.MethodPost)
+	router.HandleFunc("/resend-verification", authLimiter.HandlerFunc(authHandler.ResendVerification)).Methods(http.MethodPost)
+	router.HandleFunc("/verify-email/status", authHandler.CheckEmailVerificationStatus).Methods(http.MethodGet)
 
 	//organizer routes
 	router.HandleFunc("/organizers/apply", organizerHandler.OrganizerApply).Methods(http.MethodPost)
@@ -159,9 +205,9 @@ func main() {
 	router.HandleFunc("/account/stripe/complete", accountHandler.CompleteStripeSetup).Methods(http.MethodPost)
 	router.HandleFunc("/account/stripe/disconnect", accountHandler.DisconnectStripe).Methods(http.MethodDelete)
 
-	// Order routes - Creation & Calculation
-	router.HandleFunc("/orders", orderHandler.CreateOrder).Methods(http.MethodPost)
-	router.HandleFunc("/orders/calculate", orderHandler.CalculateOrder).Methods(http.MethodPost)
+	// Order routes - Creation & Calculation - with rate limiting
+	router.HandleFunc("/orders", apiLimiter.HandlerFunc(orderHandler.CreateOrder)).Methods(http.MethodPost)
+	router.HandleFunc("/orders/calculate", apiLimiter.HandlerFunc(orderHandler.CalculateOrder)).Methods(http.MethodPost)
 
 	// Order routes - Viewing
 	router.HandleFunc("/orders", orderHandler.ListOrders).Methods(http.MethodGet)
@@ -169,21 +215,21 @@ func main() {
 	router.HandleFunc("/orders/{id}/summary", orderHandler.GetOrderSummary).Methods(http.MethodGet)
 	router.HandleFunc("/orders/stats", orderHandler.GetOrderStats).Methods(http.MethodGet)
 
-	// Order routes - Management
-	router.HandleFunc("/orders/{id}/status", orderHandler.UpdateOrderStatus).Methods(http.MethodPut)
-	router.HandleFunc("/orders/{id}/cancel", orderHandler.CancelOrder).Methods(http.MethodPost)
-	router.HandleFunc("/orders/{id}/refund", orderHandler.RefundOrder).Methods(http.MethodPost)
+	// Order routes - Management - with rate limiting
+	router.HandleFunc("/orders/{id}/status", paymentLimiter.HandlerFunc(orderHandler.UpdateOrderStatus)).Methods(http.MethodPut)
+	router.HandleFunc("/orders/{id}/cancel", paymentLimiter.HandlerFunc(orderHandler.CancelOrder)).Methods(http.MethodPost)
+	router.HandleFunc("/orders/{id}/refund", paymentLimiter.HandlerFunc(orderHandler.RefundOrder)).Methods(http.MethodPost)
 
-	// Order routes - Payment
-	router.HandleFunc("/orders/{id}/payment", orderHandler.ProcessPayment).Methods(http.MethodPost)
-	router.HandleFunc("/orders/{id}/payment/verify", orderHandler.VerifyPayment).Methods(http.MethodPost)
+	// Order routes - Payment - with rate limiting
+	router.HandleFunc("/orders/{id}/payment", paymentLimiter.HandlerFunc(orderHandler.ProcessPayment)).Methods(http.MethodPost)
+	router.HandleFunc("/orders/{id}/payment/verify", paymentLimiter.HandlerFunc(orderHandler.VerifyPayment)).Methods(http.MethodPost)
 
 	// Order routes - Organizer view
 	router.HandleFunc("/organizers/orders", orderHandler.ListOrganizerOrders).Methods(http.MethodGet)
 
 	// Ticket routes - Generation
-	router.HandleFunc("/tickets/generate", ticketHandler.GenerateTickets).Methods(http.MethodPost)
-	router.HandleFunc("/tickets/regenerate-qr", ticketHandler.RegenerateTicketQR).Methods(http.MethodPost)
+	router.Handle("/tickets/generate", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.GenerateTickets))).Methods(http.MethodPost)
+	router.Handle("/tickets/regenerate-qr", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.RegenerateTicketQR))).Methods(http.MethodPost)
 
 	// Ticket routes - Viewing
 	router.HandleFunc("/tickets", ticketHandler.ListUserTickets).Methods(http.MethodGet)
@@ -191,12 +237,12 @@ func main() {
 	router.HandleFunc("/tickets/number", ticketHandler.GetTicketByNumber).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/stats", ticketHandler.GetTicketStats).Methods(http.MethodGet)
 
-	// Ticket routes - PDF Download
-	router.HandleFunc("/tickets/{id}/pdf", ticketHandler.DownloadTicketPDF).Methods(http.MethodGet)
+	// Ticket routes - PDF Download - with rate limiting and email verification
+	router.Handle("/tickets/{id}/pdf", emailVerificationMiddleware(downloadLimiter.HandlerFunc(ticketHandler.DownloadTicketPDF))).Methods(http.MethodGet)
 
-	// Ticket routes - Transfer
-	router.HandleFunc("/tickets/{id}/transfer", ticketHandler.TransferTicket).Methods(http.MethodPost)
-	router.HandleFunc("/tickets/{id}/transfer-history", ticketHandler.GetTransferHistory).Methods(http.MethodGet)
+	// Ticket routes - Transfer - with rate limiting and email verification
+	router.Handle("/tickets/{id}/transfer", emailVerificationMiddleware(paymentLimiter.HandlerFunc(ticketHandler.TransferTicket))).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/{id}/transfer-history", apiLimiter.HandlerFunc(ticketHandler.GetTransferHistory)).Methods(http.MethodGet)
 
 	// Ticket routes - Validation (Organizer only)
 	router.HandleFunc("/tickets/validate", ticketHandler.ValidateTicket).Methods(http.MethodPost)
@@ -249,44 +295,44 @@ func main() {
 	router.HandleFunc("/organizers/promotions", promotionHandler.ListOrganizerPromotions).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/promotions/stats", promotionHandler.GetOrganizerPromotionStats).Methods(http.MethodGet)
 
-	// Inventory routes - Availability
-	router.HandleFunc("/inventory/tickets/{id}", inventoryHandler.GetTicketAvailability).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/events/{id}", inventoryHandler.GetEventInventory).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/status/{id}", inventoryHandler.GetInventoryStatus).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/bulk-check", inventoryHandler.BulkCheckAvailability).Methods(http.MethodPost)
+	// Inventory routes - Availability - with rate limiting
+	router.HandleFunc("/inventory/tickets/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetTicketAvailability)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/events/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetEventInventory)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/status/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetInventoryStatus)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/bulk-check", inventoryLimiter.HandlerFunc(inventoryHandler.BulkCheckAvailability)).Methods(http.MethodPost)
 
-	// Inventory routes - Reservations
-	router.HandleFunc("/inventory/reservations", inventoryHandler.CreateReservation).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/reservations/{id}", inventoryHandler.GetReservation).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/reservations", inventoryHandler.ListUserReservations).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/reservations/{id}/validate", inventoryHandler.ValidateReservation).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/reservations/{id}/extend", inventoryHandler.ExtendReservation).Methods(http.MethodPost)
+	// Inventory routes - Reservations - with rate limiting
+	router.HandleFunc("/inventory/reservations", inventoryLimiter.HandlerFunc(inventoryHandler.CreateReservation)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/reservations/{id}", apiLimiter.HandlerFunc(inventoryHandler.GetReservation)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/reservations", apiLimiter.HandlerFunc(inventoryHandler.ListUserReservations)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/reservations/{id}/validate", inventoryLimiter.HandlerFunc(inventoryHandler.ValidateReservation)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/reservations/{id}/extend", inventoryLimiter.HandlerFunc(inventoryHandler.ExtendReservation)).Methods(http.MethodPost)
 
-	// Inventory routes - Release
-	router.HandleFunc("/inventory/reservations/{id}/release", inventoryHandler.ReleaseReservation).Methods(http.MethodDelete)
-	router.HandleFunc("/inventory/reservations/expired", inventoryHandler.ReleaseExpiredReservations).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/reservations/convert", inventoryHandler.ConvertReservationToOrder).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/reservations/session", inventoryHandler.ReleaseSessionReservations).Methods(http.MethodDelete)
-	router.HandleFunc("/inventory/events/{id}/reservations", inventoryHandler.GetReservationsByEvent).Methods(http.MethodGet)
+	// Inventory routes - Release - with rate limiting
+	router.HandleFunc("/inventory/reservations/{id}/release", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseReservation)).Methods(http.MethodDelete)
+	router.HandleFunc("/inventory/reservations/expired", paymentLimiter.HandlerFunc(inventoryHandler.ReleaseExpiredReservations)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/reservations/convert", paymentLimiter.HandlerFunc(inventoryHandler.ConvertReservationToOrder)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/reservations/session", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseSessionReservations)).Methods(http.MethodDelete)
+	router.HandleFunc("/inventory/events/{id}/reservations", apiLimiter.HandlerFunc(inventoryHandler.GetReservationsByEvent)).Methods(http.MethodGet)
 
-	// Payment routes - Processing
-	router.HandleFunc("/payments/initiate", paymentHandler.InitiatePayment).Methods(http.MethodPost)
-	router.HandleFunc("/payments/verify/{id}", paymentHandler.VerifyPayment).Methods(http.MethodGet)
-	router.HandleFunc("/payments/orders/{id}/status", paymentHandler.GetPaymentStatus).Methods(http.MethodGet)
-	router.HandleFunc("/payments/history", paymentHandler.GetPaymentHistory).Methods(http.MethodGet)
+	// Payment routes - Processing - with rate limiting
+	router.HandleFunc("/payments/initiate", paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment)).Methods(http.MethodPost)
+	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodGet)
+	router.HandleFunc("/payments/orders/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetPaymentStatus)).Methods(http.MethodGet)
+	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
 
-	// Payment routes - Methods (Saved payment methods)
-	router.HandleFunc("/payments/methods", paymentHandler.SavePaymentMethod).Methods(http.MethodPost)
-	router.HandleFunc("/payments/methods", paymentHandler.GetPaymentMethods).Methods(http.MethodGet)
-	router.HandleFunc("/payments/methods/{id}", paymentHandler.DeletePaymentMethod).Methods(http.MethodDelete)
-	router.HandleFunc("/payments/methods/{id}/default", paymentHandler.SetDefaultPaymentMethod).Methods(http.MethodPost)
-	router.HandleFunc("/payments/methods/{id}/expiry", paymentHandler.UpdatePaymentMethodExpiry).Methods(http.MethodPut)
+	// Payment routes - Methods (Saved payment methods) - with rate limiting
+	router.HandleFunc("/payments/methods", paymentLimiter.HandlerFunc(paymentHandler.SavePaymentMethod)).Methods(http.MethodPost)
+	router.HandleFunc("/payments/methods", apiLimiter.HandlerFunc(paymentHandler.GetPaymentMethods)).Methods(http.MethodGet)
+	router.HandleFunc("/payments/methods/{id}", paymentLimiter.HandlerFunc(paymentHandler.DeletePaymentMethod)).Methods(http.MethodDelete)
+	router.HandleFunc("/payments/methods/{id}/default", paymentLimiter.HandlerFunc(paymentHandler.SetDefaultPaymentMethod)).Methods(http.MethodPost)
+	router.HandleFunc("/payments/methods/{id}/expiry", paymentLimiter.HandlerFunc(paymentHandler.UpdatePaymentMethodExpiry)).Methods(http.MethodPut)
 
-	// Payment routes - Refunds
-	router.HandleFunc("/payments/refunds", paymentHandler.InitiateRefund).Methods(http.MethodPost)
-	router.HandleFunc("/payments/refunds/{id}/status", paymentHandler.GetRefundStatus).Methods(http.MethodGet)
-	router.HandleFunc("/payments/refunds", paymentHandler.ListRefunds).Methods(http.MethodGet)
-	router.HandleFunc("/payments/refunds/{id}/approve", paymentHandler.ApproveRefund).Methods(http.MethodPost)
+	// Payment routes - Refunds - with rate limiting
+	router.HandleFunc("/payments/refunds", paymentLimiter.HandlerFunc(paymentHandler.InitiateRefund)).Methods(http.MethodPost)
+	router.HandleFunc("/payments/refunds/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetRefundStatus)).Methods(http.MethodGet)
+	router.HandleFunc("/payments/refunds", apiLimiter.HandlerFunc(paymentHandler.ListRefunds)).Methods(http.MethodGet)
+	router.HandleFunc("/payments/refunds/{id}/approve", paymentLimiter.HandlerFunc(paymentHandler.ApproveRefund)).Methods(http.MethodPost)
 
 	// Payment routes - Webhooks
 	router.HandleFunc("/webhooks/intasend", paymentHandler.HandleIntasendWebhook).Methods(http.MethodPost)
@@ -296,11 +342,11 @@ func main() {
 	// Payment routes - Gateways
 	router.HandleFunc("/payments/gateways", paymentHandler.GetAvailableGateways).Methods(http.MethodGet)
 
-	// Refund routes - Customer
-	router.HandleFunc("/refunds", refundHandler.RequestRefund).Methods(http.MethodPost)
-	router.HandleFunc("/refunds", refundHandler.ListRefunds).Methods(http.MethodGet)
-	router.HandleFunc("/refunds/{id}", refundHandler.GetRefundStatus).Methods(http.MethodGet)
-	router.HandleFunc("/refunds/{id}/cancel", refundHandler.CancelRefundRequest).Methods(http.MethodPost)
+	// Refund routes - Customer - with rate limiting
+	router.HandleFunc("/refunds", paymentLimiter.HandlerFunc(refundHandler.RequestRefund)).Methods(http.MethodPost)
+	router.HandleFunc("/refunds", apiLimiter.HandlerFunc(refundHandler.ListRefunds)).Methods(http.MethodGet)
+	router.HandleFunc("/refunds/{id}", apiLimiter.HandlerFunc(refundHandler.GetRefundStatus)).Methods(http.MethodGet)
+	router.HandleFunc("/refunds/{id}/cancel", paymentLimiter.HandlerFunc(refundHandler.CancelRefundRequest)).Methods(http.MethodPost)
 
 	// Refund routes - Admin/Organizer
 	router.HandleFunc("/admin/refunds/pending", refundHandler.ListPendingRefunds).Methods(http.MethodGet)

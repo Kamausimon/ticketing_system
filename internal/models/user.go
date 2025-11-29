@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql/driver"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -38,6 +39,11 @@ type User struct {
 	Role             Role `gorm:"type:varchar(20);default:'customer';not null"`
 	IsActive         bool `gorm:"default:true"`
 	ProfilePicture   *string
+
+	// Email verification fields
+	EmailVerified        bool       `gorm:"default:false;index"`
+	EmailVerifiedAt      *time.Time `gorm:"index"`
+	VerificationTokenExp *time.Time
 
 	// JWT Token fields
 	RefreshToken    *string `gorm:"type:text"` // Store refresh token

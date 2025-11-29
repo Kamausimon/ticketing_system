@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,8 +12,9 @@ import (
 
 // TicketHandler handles all ticket-related operations
 type TicketHandler struct {
-	db      *gorm.DB
-	metrics *analytics.PrometheusMetrics
+	db                  *gorm.DB
+	metrics             *analytics.PrometheusMetrics
+	notificationService *notifications.NotificationService
 }
 
 // NewTicketHandler creates a new ticket handler
@@ -20,6 +22,15 @@ func NewTicketHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *Ticket
 	return &TicketHandler{
 		db:      db,
 		metrics: metrics,
+	}
+}
+
+// NewTicketHandlerWithNotifications creates a new ticket handler with notification service
+func NewTicketHandlerWithNotifications(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService) *TicketHandler {
+	return &TicketHandler{
+		db:                  db,
+		metrics:             metrics,
+		notificationService: notificationService,
 	}
 }
 
@@ -149,12 +160,6 @@ func convertToTicketResponse(ticket models.Ticket) TicketResponse {
 	}
 
 	return response
-}
-
-// Helper function to generate unique ticket number
-func generateTicketNumber(eventID, orderID, ticketID uint) string {
-	timestamp := time.Now().Unix()
-	return fmt.Sprintf("TKT-%d-%d-%d-%d", eventID, orderID, ticketID, timestamp)
 }
 
 // Helper function to generate QR code data

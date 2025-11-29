@@ -22,6 +22,11 @@ func NewNotificationService(cfg *config.Config) *NotificationService {
 	}
 }
 
+// GetEmailService returns the underlying email service
+func (s *NotificationService) GetEmailService() *EmailService {
+	return s.emailService
+}
+
 // WelcomeData holds data for welcome emails
 type WelcomeData struct {
 	Name    string

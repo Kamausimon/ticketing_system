@@ -31,6 +31,26 @@ Complete list of all available API endpoints in the ticketing system.
 - `POST /forgot-password` - Request password reset
 - `POST /resetPassword` - Reset password with token
 
+### Email Verification ⚡ NEW
+- `POST /verify-email` - Verify email with token
+  - **Request:** `{"token": "verification_token"}`
+  - **Requires:** None
+  - **Response:** `{"message": "email verified successfully", "email": "user@example.com"}`
+  - **Status Codes:** 200 OK, 400 Bad Request, 409 Conflict
+  
+- `POST /resend-verification` - Resend verification email
+  - **Request:** `{"email": "user@example.com"}`
+  - **Rate Limit:** 5-minute cooldown, max 3 attempts
+  - **Response:** `{"message": "verification email resent successfully", "email": "user@example.com"}`
+  - **Status Codes:** 200 OK, 400 Bad Request, 404 Not Found, 429 Too Many Requests
+  
+- `GET /verify-email/status` - Check email verification status
+  - **Requires:** JWT Token
+  - **Response:** `{"email_verified": bool, "email": "user@example.com", "verified_at": "timestamp"}`
+  - **Status Codes:** 200 OK, 401 Unauthorized, 404 Not Found
+
+📝 **See:** `EMAIL_VERIFICATION_API.md` for complete documentation
+
 ---
 
 ## Organizers
@@ -148,7 +168,11 @@ Complete list of all available API endpoints in the ticketing system.
 
 ### Ticket Generation
 - `POST /tickets/generate` - Generate tickets for an order
+  - **⚠️ REQUIRES EMAIL VERIFICATION**
+  - **Response:** Generated tickets or 403 Forbidden if email not verified
 - `POST /tickets/regenerate-qr` - Regenerate ticket QR code
+  - **⚠️ REQUIRES EMAIL VERIFICATION**
+  - **Response:** Updated ticket or 403 Forbidden if email not verified
 
 ### Ticket Viewing
 - `GET /tickets` - List user's tickets
@@ -158,9 +182,13 @@ Complete list of all available API endpoints in the ticketing system.
 
 ### PDF Download
 - `GET /tickets/{id}/pdf` - Download ticket as PDF ✨
+  - **⚠️ REQUIRES EMAIL VERIFICATION**
+  - **Response:** PDF file or 403 Forbidden if email not verified
 
 ### Ticket Transfer
 - `POST /tickets/{id}/transfer` - Transfer ticket to another person
+  - **⚠️ REQUIRES EMAIL VERIFICATION**
+  - **Response:** Transfer confirmation or 403 Forbidden if email not verified
 - `GET /tickets/{id}/transfer-history` - Get transfer history
 
 ### Validation (Organizer)
@@ -175,6 +203,8 @@ Complete list of all available API endpoints in the ticketing system.
 
 ### Event Tickets (Organizer)
 - `GET /organizers/tickets` - List tickets for organizer's events
+
+📝 **See:** `EMAIL_VERIFICATION_API.md` for email verification requirements
 
 ---
 

@@ -10,6 +10,7 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,14 +19,24 @@ import (
 )
 
 type AuthHandler struct {
-	db      *gorm.DB
-	metrics *analytics.PrometheusMetrics
+	db                  *gorm.DB
+	metrics             *analytics.PrometheusMetrics
+	notificationService *notifications.NotificationService
 }
 
 func NewAuthHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *AuthHandler {
 	return &AuthHandler{
 		db:      db,
 		metrics: metrics,
+	}
+}
+
+// NewAuthHandlerWithNotifications creates a new AuthHandler with notification service
+func NewAuthHandlerWithNotifications(db *gorm.DB, metrics *analytics.PrometheusMetrics, notifService *notifications.NotificationService) *AuthHandler {
+	return &AuthHandler{
+		db:                  db,
+		metrics:             metrics,
+		notificationService: notifService,
 	}
 }
 
@@ -59,7 +70,7 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var existingUser models.User
-	if err := h.db.Where("email = ? OR username = ?", req.Email, req.Username).First(&existingUser).Error; err != nil {
+	if err := h.db.Where("email = ? OR username = ?", req.Email, req.Username).First(&existingUser).Error; err != gorm.ErrRecordNotFound {
 		middleware.WriteJSONError(w, http.StatusConflict, "user already exists")
 		return
 	}
@@ -71,20 +82,59 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := models.User{
-		FirstName:   strings.TrimSpace(req.FirstName),
-		LastName:    strings.TrimSpace(req.LastName),
-		Username:    strings.ToLower(strings.TrimSpace(req.Username)),
-		Phone:       req.Phone,
-		Email:       strings.ToLower(strings.TrimSpace(req.Email)),
-		Password:    string(hashedPassword),
-		Role:        models.RoleCustomer,
-		IsActive:    true,
-		Isconfirmed: false,
+		FirstName:     strings.TrimSpace(req.FirstName),
+		LastName:      strings.TrimSpace(req.LastName),
+		Username:      strings.ToLower(strings.TrimSpace(req.Username)),
+		Phone:         req.Phone,
+		Email:         strings.ToLower(strings.TrimSpace(req.Email)),
+		Password:      string(hashedPassword),
+		Role:          models.RoleCustomer,
+		IsActive:      true,
+		Isconfirmed:   false,
+		EmailVerified: false, // Email not verified on signup
 	}
 
 	if err := h.db.Create(&user).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create user")
 		return
+	}
+
+	// Generate verification token
+	verificationToken, err := GenerateSecureToken(32)
+	if err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to generate verification token")
+		return
+	}
+
+	expiresAt := time.Now().Add(24 * time.Hour) // Token valid for 24 hours
+
+	// Create email verification record
+	emailVerification := models.EmailVerification{
+		UserID:     user.ID,
+		Token:      verificationToken,
+		Email:      user.Email,
+		Status:     models.VerificationPending,
+		ExpiresAt:  expiresAt,
+		LastSentAt: time.Now(),
+		IPAddress:  r.RemoteAddr,
+		UserAgent:  r.Header.Get("User-Agent"),
+		IssuedAt:   time.Now(),
+	}
+
+	if err := h.db.Create(&emailVerification).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create verification token")
+		return
+	}
+
+	// Send verification email if notification service is available
+	if h.notificationService != nil {
+		fullName := user.FirstName + " " + user.LastName
+		go func() {
+			if err := h.notificationService.SendVerificationEmail(user.Email, fullName, verificationToken); err != nil {
+				// Log error but don't fail registration
+				middleware.WriteJSONError(w, http.StatusInternalServerError, "user registered but failed to send verification email")
+			}
+		}()
 	}
 
 	// Track user registration
@@ -93,7 +143,7 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := RegisterReponse{
-		Message: "user registered successfully",
+		Message: "user registered successfully. Please check your email to verify your account",
 		UserId:  user.ID,
 		Email:   user.Email,
 	}
@@ -338,4 +388,190 @@ func GenerateSecureToken(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+// VerifyEmailRequest represents an email verification request
+type VerifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+// VerifyEmailResponse represents an email verification response
+type VerifyEmailResponse struct {
+	Message string `json:"message"`
+	Email   string `json:"email"`
+}
+
+// VerifyEmail verifies a user's email address
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req VerifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Token == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "verification token is required")
+		return
+	}
+
+	// Find verification record
+	var verification models.EmailVerification
+	if err := h.db.Where("token = ?", req.Token).First(&verification).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid or expired verification token")
+		return
+	}
+
+	// Check if token is expired
+	if verification.ExpiresAt.Before(time.Now()) {
+		verification.Status = models.VerificationExpired
+		h.db.Save(&verification)
+		middleware.WriteJSONError(w, http.StatusBadRequest, "verification token has expired")
+		return
+	}
+
+	// Check if already verified
+	if verification.Status == models.VerificationVerified {
+		middleware.WriteJSONError(w, http.StatusConflict, "email already verified")
+		return
+	}
+
+	// Update user
+	if err := h.db.Model(&models.User{}).Where("id = ?", verification.UserID).Updates(map[string]interface{}{
+		"email_verified":    true,
+		"email_verified_at": time.Now(),
+	}).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to verify email")
+		return
+	}
+
+	// Update verification record
+	now := time.Now()
+	verification.Status = models.VerificationVerified
+	verification.VerifiedAt = &now
+	if err := h.db.Save(&verification).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update verification record")
+		return
+	}
+
+	response := VerifyEmailResponse{
+		Message: "email verified successfully",
+		Email:   verification.Email,
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// ResendVerificationRequest represents a resend verification request
+type ResendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
+// ResendVerification resends the verification email
+func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req ResendVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Email == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+
+	// Find user
+	var user models.User
+	if err := h.db.Where("email = ?", strings.ToLower(req.Email)).First(&user).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	// Check if already verified
+	if user.EmailVerified {
+		middleware.WriteJSONError(w, http.StatusConflict, "email already verified")
+		return
+	}
+
+	// Find pending verification
+	var verification models.EmailVerification
+	if err := h.db.Where("user_id = ? AND status = ?", user.ID, models.VerificationPending).First(&verification).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "no pending verification found")
+		return
+	}
+
+	// Check if max resends reached
+	if verification.ResendCount >= verification.MaxResends {
+		middleware.WriteJSONError(w, http.StatusTooManyRequests, "maximum resend attempts reached. Please contact support")
+		return
+	}
+
+	// Check rate limiting - don't allow resend within 5 minutes
+	if time.Since(verification.LastSentAt) < 5*time.Minute {
+		middleware.WriteJSONError(w, http.StatusTooManyRequests, "please wait before requesting a new verification email")
+		return
+	}
+
+	// Generate new token
+	newToken, err := GenerateSecureToken(32)
+	if err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to generate new verification token")
+		return
+	}
+
+	// Update verification record
+	verification.Token = newToken
+	verification.ExpiresAt = time.Now().Add(24 * time.Hour)
+	verification.LastSentAt = time.Now()
+	verification.ResendCount++
+
+	if err := h.db.Save(&verification).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update verification token")
+		return
+	}
+
+	// Resend verification email
+	if h.notificationService != nil {
+		fullName := user.FirstName + " " + user.LastName
+		go func() {
+			if err := h.notificationService.SendVerificationEmail(user.Email, fullName, newToken); err != nil {
+				// Log but don't fail the request
+			}
+		}()
+	}
+
+	response := map[string]interface{}{
+		"message": "verification email resent successfully",
+		"email":   user.Email,
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// CheckEmailVerificationStatus checks the email verification status
+func (h *AuthHandler) CheckEmailVerificationStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var user models.User
+	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	response := map[string]interface{}{
+		"email_verified": user.EmailVerified,
+		"email":          user.Email,
+		"verified_at":    user.EmailVerifiedAt,
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }

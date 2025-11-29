@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
-	"time"
 )
 
 // ValidateTicket handles validating a ticket at entry
@@ -108,13 +107,6 @@ func (h *TicketHandler) ValidateTicket(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(response)
 		return
-	}
-
-	// Check if event has started (optional validation)
-	now := time.Now()
-	if event.StartDate.After(now.Add(24 * time.Hour)) {
-		// Event is more than 24 hours away - might want to warn
-		// But still allow validation
 	}
 
 	// Ticket is valid

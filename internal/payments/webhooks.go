@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"ticketing_system/internal/models"
 	"time"
@@ -34,11 +36,20 @@ type IntasendWebhookEvent struct {
 	FailedReason string  `json:"failed_reason,omitempty"`
 }
 
-// HandleIntasendWebhook processes incoming webhooks from Intasend
+// HandleIntasendWebhook processes incoming webhooks from Intasend with enhanced error handling
 func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			stackTrace := string(debug.Stack())
+			log.Printf("❌ PANIC in webhook handler: %v\nStack: %s", rec, stackTrace)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+		}
+	}()
+
 	// Read the raw body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		log.Printf("❌ Failed to read webhook body: %v", err)
 		writeError(w, http.StatusBadRequest, "Failed to read request body")
 		return
 	}
@@ -48,6 +59,7 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 	signature := r.Header.Get("X-IntaSend-Signature")
 	if !h.verifyIntasendSignature(body, signature) {
 		// Log suspicious webhook
+		log.Printf("⚠️ Invalid webhook signature from %s", r.RemoteAddr)
 		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Invalid signature", r.RemoteAddr, r.UserAgent())
 		writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
 		return
@@ -56,14 +68,18 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 	// Parse webhook event
 	var event IntasendWebhookEvent
 	if err := json.Unmarshal(body, &event); err != nil {
-		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Failed to parse JSON", r.RemoteAddr, r.UserAgent())
+		log.Printf("❌ Failed to parse webhook JSON: %v", err)
+		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, fmt.Sprintf("Failed to parse JSON: %v", err), r.RemoteAddr, r.UserAgent())
 		writeError(w, http.StatusBadRequest, "Invalid webhook payload")
 		return
 	}
 
+	log.Printf("📨 Received webhook event: ID=%s, State=%s, APIRef=%s", event.ID, event.State, event.APIRef)
+
 	// Check for duplicate events
 	isDuplicate := h.checkDuplicateWebhook(event.ID)
 	if isDuplicate {
+		log.Printf("⚠️ Duplicate webhook event: %s", event.ID)
 		h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, true, "Duplicate event", r.RemoteAddr, r.UserAgent())
 		writeJSON(w, http.StatusOK, WebhookEventResponse{
 			Received:  true,
@@ -74,18 +90,20 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 	}
 
 	// Process the webhook based on state
-	success, err := h.processIntasendWebhook(&event)
+	success, err := h.processIntasendWebhookSafe(&event)
 	if err != nil {
-		h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, false, err.Error(), r.RemoteAddr, r.UserAgent())
+		log.Printf("❌ Failed to process webhook (Event: %s): %v", event.ID, err)
+		h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, false, fmt.Sprintf("Processing failed: %v", err), r.RemoteAddr, r.UserAgent())
 		writeJSON(w, http.StatusOK, WebhookEventResponse{
 			Received:  true,
 			Processed: false,
-			Message:   "Webhook received but processing failed",
+			Message:   "Webhook received but processing failed - will be retried",
 		})
 		return
 	}
 
 	// Log successful webhook
+	log.Printf("✅ Webhook processed successfully: %s", event.ID)
 	h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, true, "", r.RemoteAddr, r.UserAgent())
 
 	writeJSON(w, http.StatusOK, WebhookEventResponse{
@@ -355,6 +373,17 @@ func (h *PaymentHandler) RetryFailedWebhook(w http.ResponseWriter, r *http.Reque
 		"retry_count": webhookLog.RetryCount,
 		"message":     "Webhook retry completed",
 	})
+}
+
+// processIntasendWebhookSafe wraps webhook processing with panic recovery
+func (h *PaymentHandler) processIntasendWebhookSafe(event *IntasendWebhookEvent) (bool, error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("❌ Panic during webhook processing (Event: %s): %v\nStack: %s", event.ID, rec, string(debug.Stack()))
+		}
+	}()
+
+	return h.processIntasendWebhook(event)
 }
 
 // STRIPE WEBHOOK HANDLER - COMMENTED OUT FOR FUTURE USE

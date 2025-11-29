@@ -70,56 +70,6 @@ func (h *TicketHandler) GenerateTickets(w http.ResponseWriter, r *http.Request) 
 		}
 	}()
 
-	var generatedTickets []models.Ticket
-
-	// Generate tickets for each order item
-	for _, item := range order.OrderItems {
-		for i := 0; i < item.Quantity; i++ {
-			// Create ticket
-			ticket := models.Ticket{
-				OrderItemID: item.ID,
-				HolderName:  fmt.Sprintf("%s %s", order.FirstName, order.LastName),
-				HolderEmail: order.Email,
-				Status:      models.TicketActive,
-			}
-
-			// Save to get ID
-			if err := tx.Create(&ticket).Error; err != nil {
-				tx.Rollback()
-				middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create ticket")
-				return
-			}
-
-			// Generate ticket number using IDs
-			ticket.TicketNumber = generateTicketNumber(
-				item.TicketClass.EventID,
-				order.ID,
-				ticket.ID,
-			)
-
-			// Generate QR code
-			ticket.QRCode = generateQRCodeData(ticket.TicketNumber)
-			ticket.BarcodeData = ticket.TicketNumber
-
-			// Update ticket with generated data
-			if err := tx.Save(&ticket).Error; err != nil {
-				tx.Rollback()
-				middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update ticket")
-				return
-			}
-
-			generatedTickets = append(generatedTickets, ticket)
-		}
-	}
-
-	// Update order status to fulfilled
-	order.Status = models.OrderFulfilled
-	if err := tx.Save(&order).Error; err != nil {
-		tx.Rollback()
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update order status")
-		return
-	}
-
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to generate tickets")
@@ -149,6 +99,11 @@ func (h *TicketHandler) GenerateTickets(w http.ResponseWriter, r *http.Request) 
 			if pdfPath, err := h.generateTicketPDF(&ticketList[i]); err == nil {
 				// Update ticket with PDF path
 				h.db.Model(&ticketList[i]).Update("pdf_path", pdfPath)
+
+				// Send email with PDF attachment if notification service is available
+				if h.notificationService != nil {
+					h.sendTicketEmailWithPDF(&ticketList[i], pdfPath)
+				}
 			} else {
 				fmt.Printf("⚠️ Failed to generate PDF for ticket %s: %v\n", ticketList[i].TicketNumber, err)
 			}

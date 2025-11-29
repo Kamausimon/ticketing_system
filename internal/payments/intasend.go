@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"ticketing_system/internal/models"
 	"time"
 )
 
@@ -292,18 +291,4 @@ func (h *PaymentHandler) InitiateIntasendRefund(transactionID string, amount int
 	}
 
 	return &refundResp, nil
-}
-
-// mapIntasendStateToStatus maps Intasend state to our internal status
-func mapIntasendStateToStatus(state string) models.TransactionStatus {
-	switch state {
-	case "PENDING", "PROCESSING":
-		return models.TransactionPending
-	case "COMPLETE":
-		return models.TransactionCompleted
-	case "FAILED":
-		return models.TransactionFailed
-	default:
-		return models.TransactionPending
-	}
 }

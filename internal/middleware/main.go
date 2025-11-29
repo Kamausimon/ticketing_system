@@ -11,6 +11,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 )
 
 func WriteJSONError(w http.ResponseWriter, status int, msg string) {
@@ -73,4 +74,38 @@ func GetUserIDFromToken(r *http.Request) uint {
 		log.Fatal("error getting the user id", err)
 	}
 	return userID
+}
+
+// RequireEmailVerification middleware checks if the user's email is verified
+// If not verified, it returns a 403 Forbidden error
+func RequireEmailVerification(db *gorm.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID := GetUserIDFromToken(r)
+			if userID == 0 {
+				WriteJSONError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+
+			// Check if user's email is verified
+			var emailVerified bool
+			result := db.Model(&struct{}{}).
+				Select("email_verified").
+				Where("id = ?", userID).
+				Row().
+				Scan(&emailVerified)
+
+			if result != nil {
+				WriteJSONError(w, http.StatusInternalServerError, "failed to check email verification status")
+				return
+			}
+
+			if !emailVerified {
+				WriteJSONError(w, http.StatusForbidden, "email verification required. Please verify your email address to perform this action")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
