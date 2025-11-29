@@ -105,8 +105,8 @@ func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 	refund.Order.Status = "refunded"
 	h.db.Save(&refund.Order)
 
-	// TODO: Update settlement records to reflect refund impact
-	// TODO: Send notification to customer about refund completion
+	// Send notification to customer about refund completion
+	go h.sendRefundCompletedEmail(&refund)
 
 	writeJSON(w, http.StatusOK, RefundResponse{
 		Success:      true,

@@ -81,7 +81,7 @@ func main() {
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics)
-	refundHandler := refunds.NewRefundHandler(DB, metrics, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
+	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
 	settlementHandler := settlement.NewSettlementHandler(settlementService)
 	attendeeHandler := attendees.NewAttendeeHandler(DB, metrics)
