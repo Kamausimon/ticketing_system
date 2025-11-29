@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -244,52 +245,155 @@ type ResetResponse struct {
 	Message string `json:"message"`
 }
 
+// ResetPassword handles password reset with comprehensive validation and security tracking
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	// Add security headers
+	AddSecurityHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
+
 	var req ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Validate request fields
+	if req.ResetToken == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "reset token is required")
+		return
+	}
+	if req.Password == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "password is required")
+		return
+	}
 	if req.Password != req.PasswordConfirm {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "passwords dont match")
+		middleware.WriteJSONError(w, http.StatusBadRequest, "passwords do not match")
+		return
+	}
+	if len(req.Password) < 8 {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "password must be at least 8 characters long")
 		return
 	}
 
-	//check if the token exists in password reset and is valid
-	var PasswordResetToken models.PasswordReset
-	if err := h.db.Where("token = ?", req.ResetToken).First(&PasswordResetToken).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "invalid or expired token")
+	// Retrieve password reset token with comprehensive validation
+	var passwordReset models.PasswordReset
+	if err := h.db.Where("token = ?", req.ResetToken).First(&passwordReset).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid or expired token")
 		return
 	}
 
-	if PasswordResetToken.ExpiresAt.Before(time.Now()) {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "reset token has expired")
+	// Record attempt for security tracking
+	attempt := models.PasswordResetAttempt{
+		PasswordResetID: passwordReset.ID,
+		IPAddress:       GetClientIP(r),
+		UserAgent:       r.Header.Get("User-Agent"),
+		AttemptedAt:     time.Now(),
+	}
+
+	// VALIDATION 1: Check token expiration
+	if time.Now().After(passwordReset.ExpiresAt) {
+		attempt.FailureReason = stringPtr("Token expired")
+		attempt.ErrorCode = stringPtr("TOKEN_EXPIRED")
+		h.db.Create(&attempt)
+
+		// Mark token as expired
+		h.db.Model(&passwordReset).Update("status", models.ResetExpired)
+
+		middleware.WriteJSONError(w, http.StatusBadRequest, "reset token has expired. Please request a new password reset")
+		return
+	}
+	attempt.NotExpired = true
+
+	// VALIDATION 2: Check if token was already used
+	if passwordReset.Status != models.ResetPending {
+		attempt.FailureReason = stringPtr(fmt.Sprintf("Token already %s", passwordReset.Status))
+		attempt.ErrorCode = stringPtr("TOKEN_ALREADY_USED")
+		h.db.Create(&attempt)
+
+		middleware.WriteJSONError(w, http.StatusConflict, "this reset token has already been used. Please request a new one")
 		return
 	}
 
-	// Check if token was already used
-	if PasswordResetToken.Status != models.ResetPending {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "reset token has already been used or is invalid")
+	// VALIDATION 3: Check attempt count
+	if passwordReset.AttemptCount >= passwordReset.MaxAttempts {
+		attempt.FailureReason = stringPtr("Max attempts exceeded")
+		attempt.ErrorCode = stringPtr("MAX_ATTEMPTS_EXCEEDED")
+		h.db.Create(&attempt)
+
+		// Mark token as invalid for security
+		h.db.Model(&passwordReset).Update("status", models.ResetInvalid)
+
+		middleware.WriteJSONError(w, http.StatusForbidden, "maximum reset attempts exceeded. Please request a new password reset link")
 		return
 	}
 
-	//if all is okay hash the password and update user
+	// VALIDATION 4: IP consistency check (optional but recommended)
+	if passwordReset.SameIPRequired && passwordReset.OriginalIP != GetClientIP(r) {
+		attempt.IPMatched = false
+		attempt.FailureReason = stringPtr("IP mismatch")
+		attempt.ErrorCode = stringPtr("IP_MISMATCH")
+		h.db.Create(&attempt)
+
+		middleware.WriteJSONError(w, http.StatusForbidden, "password reset attempted from different IP address")
+		return
+	}
+	attempt.IPMatched = true
+
+	// Get associated user
+	var user models.User
+	if err := h.db.First(&user, passwordReset.UserID).Error; err != nil {
+		attempt.FailureReason = stringPtr("User not found")
+		attempt.ErrorCode = stringPtr("USER_NOT_FOUND")
+		h.db.Create(&attempt)
+
+		middleware.WriteJSONError(w, http.StatusNotFound, "user account not found")
+		return
+	}
+
+	// Hash new password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "erro hashing password")
-		return
-	}
-	var user models.User
-	if err = h.db.Model(&user).Updates(map[string]interface{}{
-		"password": hashedPassword,
-	}).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "error updating password")
+		attempt.FailureReason = stringPtr("Password hashing failed")
+		attempt.ErrorCode = stringPtr("HASH_ERROR")
+		h.db.Create(&attempt)
+
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to process password reset")
 		return
 	}
 
-	//delete the reset token
-	if err := h.db.Model(&PasswordResetToken).Updates(map[string]interface{}{
-		"token": nil,
-	}).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, " error deleteing the reset token")
+	// Update password and mark token as used
+	now := time.Now()
+	if err := h.db.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+		attempt.FailureReason = stringPtr("Password update failed")
+		attempt.ErrorCode = stringPtr("UPDATE_ERROR")
+		h.db.Create(&attempt)
+
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update password")
 		return
+	}
+
+	// Mark password reset as used
+	if err := h.db.Model(&passwordReset).Updates(map[string]interface{}{
+		"status":       models.ResetUsed,
+		"used_at":      now,
+		"used_from_ip": GetClientIP(r),
+	}).Error; err != nil {
+		attempt.FailureReason = stringPtr("Failed to mark token as used")
+		attempt.ErrorCode = stringPtr("MARK_USED_ERROR")
+		h.db.Create(&attempt)
+
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to finalize password reset")
+		return
+	}
+
+	// Record successful attempt
+	attempt.WasSuccessful = true
+	attempt.TokenValid = true
+	h.db.Create(&attempt)
+
+	// Send confirmation email if notification service available
+	if h.notificationService != nil {
+		h.notificationService.SendPlainEmail([]string{user.Email}, "Password Reset Successful", "Your password has been successfully reset.")
 	}
 
 	response := ResetResponse{
@@ -307,7 +411,10 @@ type ForgotPasswordResponse struct {
 	Message string `json:"message"`
 }
 
+// ForgotPassword handles password reset request with rate limiting and attempt tracking
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	// Add security headers
+	AddSecurityHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 
 	var req ForgotPasswordRequest
@@ -321,21 +428,59 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	clientIP := GetClientIP(r)
+
 	// Check if user exists
 	var user models.User
+	userExists := true
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		// For security, don't reveal if email exists or not
-		json.NewEncoder(w).Encode(ForgotPasswordResponse{
-			Message: "If an account with that email exists, a password reset link has been sent",
-		})
-		return
+		userExists = false
 	}
 
-	// Check rate limiting - prevent spam
-	var recentReset models.PasswordReset
-	if err := h.db.Where("email = ? AND expires_at > ? AND status = ?",
-		req.Email, time.Now(), models.ResetPending).First(&recentReset).Error; err == nil {
-		middleware.WriteJSONError(w, http.StatusTooManyRequests, "password reset already requested, please check your email")
+	// RATE LIMITING: Check if user has requested too many resets
+	// Get configuration
+	var config models.ResetConfiguration
+	h.db.First(&config) // Uses default if not found
+
+	if userExists {
+		// Count recent requests from this user
+		var recentCount int64
+		h.db.Model(&models.PasswordReset{}).
+			Where("email = ? AND is_issued_at > ? AND status IN (?)",
+				req.Email,
+				time.Now().Add(-1*time.Hour),
+				[]models.ResetStatus{models.ResetPending, models.ResetUsed}).
+			Count(&recentCount)
+
+		if int(recentCount) >= config.MaxRequestsPerHour {
+			middleware.WriteJSONError(w, http.StatusTooManyRequests,
+				"too many password reset requests. Please try again later")
+			return
+		}
+
+		// Check for ongoing pending reset
+		var pendingReset models.PasswordReset
+		if err := h.db.Where("email = ? AND status = ? AND expires_at > ?",
+			req.Email, models.ResetPending, time.Now()).First(&pendingReset).Error; err == nil {
+			// Existing pending reset, don't create another
+			json.NewEncoder(w).Encode(ForgotPasswordResponse{
+				Message: "If an account with that email exists, a password reset link has been sent",
+			})
+			return
+		}
+	}
+
+	// Rate limiting per IP
+	var ipCount int64
+	h.db.Model(&models.PasswordReset{}).
+		Where("ip_address = ? AND is_issued_at > ?",
+			clientIP, time.Now().Add(-1*time.Hour)).
+		Count(&ipCount)
+
+	if int(ipCount) >= config.MaxRequestsPerIP {
+		middleware.WriteJSONError(w, http.StatusTooManyRequests,
+			"too many password reset requests from your IP address")
 		return
 	}
 
@@ -346,20 +491,30 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create password reset record
+	now := time.Now()
 	passwordReset := models.PasswordReset{
 		Token:        resetToken,
 		Email:        req.Email,
 		Status:       models.ResetPending,
 		Method:       models.ResetByEmail,
-		UserID:       &user.ID,
-		AccountID:    &user.AccountID,
-		IPAddress:    r.RemoteAddr,
+		UserID:       nil,
+		AccountID:    nil,
+		IPAddress:    clientIP,
 		UserAgent:    r.Header.Get("User-Agent"),
-		ExpiresAt:    time.Now().Add(15 * time.Minute), // 15 minutes expiry
-		IssuedAt:     time.Now(),
-		OriginalIP:   r.RemoteAddr,
-		CleanupAfter: time.Now().Add(7 * 24 * time.Hour), // Cleanup after 7 days
+		ExpiresAt:    now.Add(time.Duration(config.TokenExpiryMinutes) * time.Minute),
+		IssuedAt:     now,
+		OriginalIP:   clientIP,
+		MaxAttempts:  config.MaxAttemptsPerToken,
+		AttemptCount: 0,
+		CleanupAfter: now.Add(time.Duration(config.CleanupAfterDays) * 24 * time.Hour),
+	}
+
+	// Assign user if exists
+	if userExists {
+		passwordReset.UserID = &user.ID
+		if user.AccountID != 0 {
+			passwordReset.AccountID = &user.AccountID
+		}
 	}
 
 	// Save to database
@@ -368,11 +523,14 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Send email with reset token
-	// SendPasswordResetEmail(req.Email, resetToken)
+	// Send email with reset token if user exists
+	if userExists && h.notificationService != nil {
+		h.notificationService.SendPasswordResetEmail(user.Email, user.FirstName, resetToken)
 
+	}
+	// Generic response (don't reveal if email exists)
 	json.NewEncoder(w).Encode(ForgotPasswordResponse{
-		Message: "Password reset link has been sent to your email",
+		Message: "If an account with that email exists, a password reset link has been sent",
 	})
 }
 
