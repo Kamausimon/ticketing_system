@@ -17,31 +17,31 @@ type OnboardingStep struct {
 }
 
 type OnboardingStatusResponse struct {
-	CurrentStep    string           `json:"current_step"`
-	Progress       float64          `json:"progress"`
-	Steps          []OnboardingStep `json:"steps"`
-	CanCreateEvents bool            `json:"can_create_events"`
+	CurrentStep     string           `json:"current_step"`
+	Progress        float64          `json:"progress"`
+	Steps           []OnboardingStep `json:"steps"`
+	CanCreateEvents bool             `json:"can_create_events"`
 }
 
 // GetOnboardingStatus returns the current onboarding status
 func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	userID := middleware.GetUserIDFromToken(r)
-	
+
 	// Get user and organizer info
 	var user models.User
 	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	
+
 	var organizer models.Organizer
 	if err := h.db.Where("account_id = ?", user.AccountID).First(&organizer).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "organizer profile not found")
 		return
 	}
-	
+
 	// Define onboarding steps
 	steps := []OnboardingStep{
 		{
@@ -59,6 +59,13 @@ func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Re
 			Required:    true,
 		},
 		{
+			Step:        "account_approved",
+			Title:       "Account Approval",
+			Description: "Wait for admin approval of your account",
+			Completed:   organizer.IsVerified,
+			Required:    true,
+		},
+		{
 			Step:        "tax_info",
 			Title:       "Tax Information",
 			Description: "Provide tax details for payouts",
@@ -66,10 +73,17 @@ func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Re
 			Required:    true,
 		},
 		{
+			Step:        "bank_details",
+			Title:       "Bank Account Details",
+			Description: "Add your bank account for payouts",
+			Completed:   organizer.BankAccountName != "" && organizer.BankAccountNumber != "" && organizer.BankCode != "",
+			Required:    true,
+		},
+		{
 			Step:        "payment_setup",
 			Title:       "Payment Gateway",
 			Description: "Set up payment processing",
-			Completed:   false, // TODO: Check if payment gateway is configured
+			Completed:   organizer.IsPaymentConfigured,
 			Required:    true,
 		},
 		{
@@ -80,12 +94,12 @@ func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Re
 			Required:    false,
 		},
 	}
-	
+
 	// Calculate progress
 	completedSteps := 0
 	requiredSteps := 0
 	var currentStep string
-	
+
 	for _, step := range steps {
 		if step.Required {
 			requiredSteps++
@@ -96,21 +110,21 @@ func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Re
 			currentStep = step.Step
 		}
 	}
-	
+
 	progress := float64(completedSteps) / float64(len(steps)) * 100
 	allRequiredComplete := completedSteps >= requiredSteps
-	
+
 	if currentStep == "" {
 		currentStep = "completed"
 	}
-	
+
 	response := OnboardingStatusResponse{
 		CurrentStep:     currentStep,
 		Progress:        progress,
 		Steps:           steps,
 		CanCreateEvents: allRequiredComplete,
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }
 

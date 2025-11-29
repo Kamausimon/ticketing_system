@@ -344,3 +344,62 @@ func (s *NotificationService) TestEmailConfiguration(testEmail string) error {
 	log.Printf("✅ Test email sent successfully to %s", testEmail)
 	return nil
 }
+
+// OrganizerApprovalData holds data for organizer approval emails
+type OrganizerApprovalData struct {
+	OrganizerName  string
+	OrganizerEmail string
+	DashboardURL   string
+}
+
+// SendOrganizerApprovalEmail sends an approval email to an organizer
+func (s *NotificationService) SendOrganizerApprovalEmail(email string, data OrganizerApprovalData) error {
+	data.DashboardURL = fmt.Sprintf("%s/organizer/dashboard", s.config.App.FrontendURL)
+
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		"Your Organizer Account Has Been Approved!",
+		"organizer_approval",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send organizer approval email to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Organizer approval email sent to %s", email)
+	return nil
+}
+
+// OrganizerRejectionData holds data for organizer rejection emails
+type OrganizerRejectionData struct {
+	OrganizerName   string
+	OrganizerEmail  string
+	RejectionReason string
+	ReapplyURL      string
+	SupportEmail    string
+}
+
+// SendOrganizerRejectionEmail sends a rejection email to an organizer
+func (s *NotificationService) SendOrganizerRejectionEmail(email string, data OrganizerRejectionData) error {
+	data.ReapplyURL = fmt.Sprintf("%s/organizer/apply", s.config.App.FrontendURL)
+	if data.SupportEmail == "" {
+		data.SupportEmail = s.config.Email.FromEmail
+	}
+
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		"Organizer Account Application Status",
+		"organizer_rejection",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send organizer rejection email to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Organizer rejection email sent to %s", email)
+	return nil
+}

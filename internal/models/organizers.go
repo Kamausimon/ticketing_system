@@ -25,4 +25,16 @@ type Organizer struct {
 	PageBgColor         string
 	PageTextColor       string
 	EnableOrganizerPage bool
+	// Payment and bank details
+	PaymentGatewayID    *uint           `gorm:"index"`
+	PaymentGateway      *PaymentGateway `gorm:"foreignKey:PaymentGatewayID"`
+	BankAccountName     string
+	BankAccountNumber   string
+	BankCode            string
+	BankCountry         string
+	IsPaymentConfigured bool `gorm:"default:false"`
+	// Verification and approval
+	IsVerified         bool   `gorm:"default:false"`
+	VerificationStatus string // "pending", "approved", "rejected"
+	RejectionReason    string
 }

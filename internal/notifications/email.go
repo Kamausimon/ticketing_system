@@ -274,6 +274,8 @@ func (s *EmailService) getTemplate(name string) (*template.Template, error) {
 		"event_reminder":       eventReminderTemplate,
 		"payment_confirmation": paymentConfirmationTemplate,
 		"refund_processed":     refundProcessedTemplate,
+		"organizer_approval":   organizerApprovalTemplate,
+		"organizer_rejection":  organizerRejectionTemplate,
 	}
 
 	tmplStr, exists := templates[name]

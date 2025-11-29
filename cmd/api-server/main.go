@@ -67,7 +67,12 @@ func main() {
 	} else {
 		authHandler = auth.NewAuthHandler(DB, metrics)
 	}
-	organizerHandler := organizers.NewOrganizerHandler(DB, metrics)
+	var organizerHandler *organizers.OrganizerHandler
+	if notificationService != nil {
+		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService)
+	} else {
+		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil)
+	}
 	eventHandler := events.NewEventHandler(DB, metrics)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
 	orderHandler := orders.NewOrderHandler(DB, metrics)

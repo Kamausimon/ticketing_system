@@ -7,19 +7,22 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 
 	"gorm.io/gorm"
 )
 
 type OrganizerHandler struct {
-	db       *gorm.DB
-	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
+	db            *gorm.DB
+	_metrics      *analytics.PrometheusMetrics // Reserved for future instrumentation
+	notifications *notifications.NotificationService
 }
 
-func NewOrganizerHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *OrganizerHandler {
+func NewOrganizerHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService) *OrganizerHandler {
 	return &OrganizerHandler{
-		db:       db,
-		_metrics: metrics,
+		db:            db,
+		_metrics:      metrics,
+		notifications: notificationService,
 	}
 }
 

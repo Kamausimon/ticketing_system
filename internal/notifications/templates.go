@@ -369,3 +369,131 @@ const refundProcessedTemplate = `
 </body>
 </html>
 `
+
+const organizerApprovalTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #10B981; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }
+        .success-box { background: #D1FAE5; border-left: 4px solid #10B981; padding: 15px; margin: 20px 0; }
+        .next-steps { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+        .button { display: inline-block; padding: 12px 30px; background: #10B981; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+        .step-number { display: inline-block; width: 30px; height: 30px; background: #10B981; color: white; border-radius: 50%; text-align: center; line-height: 30px; margin-right: 10px; font-weight: bold; }
+        .step { margin: 15px 0; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✓ Account Approved!</h1>
+        </div>
+        <div class="content">
+            <h2>Hi {{.OrganizerName}}!</h2>
+            
+            <div class="success-box">
+                <strong>Great news!</strong> Your organizer account has been approved and verified by our admin team.
+            </div>
+            
+            <p>Your account is now active and you can start creating events on the platform.</p>
+            
+            <div class="next-steps">
+                <h3>Next Steps:</h3>
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <strong>Complete Payment Setup</strong> - Configure your payment gateway to accept payments
+                </div>
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <strong>Add Bank Details</strong> - Set up your bank account for payouts
+                </div>
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <strong>Create Your First Event</strong> - Start selling tickets
+                </div>
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <strong>Customize Your Page</strong> - Add branding and logos
+                </div>
+            </div>
+            
+            <a href="{{.DashboardURL}}" class="button">Go to Organizer Dashboard</a>
+            
+            <p><strong>Account Details:</strong></p>
+            <ul>
+                <li>Business Name: {{.OrganizerName}}</li>
+                <li>Email: {{.OrganizerEmail}}</li>
+                <li>Account Status: Verified & Active</li>
+            </ul>
+            
+            <p>If you have any questions or need assistance, please contact our support team.</p>
+            <p>Happy event hosting! 🎉</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Ticketing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`
+
+const organizerRejectionTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #EF4444; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }
+        .reason-box { background: #FEE2E2; border-left: 4px solid #EF4444; padding: 15px; margin: 20px 0; }
+        .action-box { background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 15px; margin: 20px 0; }
+        .button { display: inline-block; padding: 12px 30px; background: #3B82F6; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Account Application Status</h1>
+        </div>
+        <div class="content">
+            <h2>Hi {{.OrganizerName}}!</h2>
+            
+            <p>Thank you for submitting your organizer account application. Unfortunately, we are unable to approve it at this time.</p>
+            
+            <div class="reason-box">
+                <strong>Reason for Rejection:</strong>
+                <p>{{.RejectionReason}}</p>
+            </div>
+            
+            <div class="action-box">
+                <strong>What happens next?</strong>
+                <p>You can reapply after addressing the issues mentioned above. Please review our organizer requirements and ensure all information is accurate and complete.</p>
+            </div>
+            
+            <p><strong>Our organizer requirements include:</strong></p>
+            <ul>
+                <li>Valid business information and contact details</li>
+                <li>Complete tax identification</li>
+                <li>Valid bank account for payouts</li>
+                <li>Professional event organization history (preferred)</li>
+                <li>Compliance with our terms of service</li>
+            </ul>
+            
+            <a href="{{.ReapplyURL}}" class="button">Reapply for Approval</a>
+            
+            <p>If you believe this is a mistake or would like more information about why your application was rejected, please contact our support team.</p>
+            <p>We're here to help! Support: {{.SupportEmail}}</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Ticketing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`

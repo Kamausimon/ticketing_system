@@ -2,10 +2,12 @@ package organizers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 
 	"github.com/gorilla/mux"
 )
@@ -123,7 +125,12 @@ func (h *OrganizerHandler) VerifyOrganizer(w http.ResponseWriter, r *http.Reques
 
 	if req.Action == "approve" {
 		// Approve organizer
-		if err := h.db.Model(&organizer).Update("is_email_confirmed", true).Error; err != nil {
+		updates := map[string]interface{}{
+			"is_email_confirmed":  true,
+			"is_verified":         true,
+			"verification_status": "approved",
+		}
+		if err := h.db.Model(&organizer).Updates(updates).Error; err != nil {
 			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to approve organizer")
 			return
 		}
@@ -133,22 +140,47 @@ func (h *OrganizerHandler) VerifyOrganizer(w http.ResponseWriter, r *http.Reques
 			Status:  "approved",
 		}
 
-		// TODO: Send approval email to organizer
+		// Send approval email to organizer
+		approvalData := notifications.OrganizerApprovalData{
+			OrganizerName:  organizer.Name,
+			OrganizerEmail: organizer.Email,
+		}
+		if err := h.notifications.SendOrganizerApprovalEmail(organizer.Email, approvalData); err != nil {
+			// Log the error but don't fail the approval
+			log.Printf("❌ Failed to send approval email: %v", err)
+		}
 
 	} else {
-		// Reject organizer - you might want to delete or mark as rejected
-		// For now, we'll keep the record but add a note
-		// TODO: Add rejection tracking to organizer model
+		// Reject organizer
+		updates := map[string]interface{}{
+			"is_verified":         false,
+			"verification_status": "rejected",
+			"rejection_reason":    req.Reason,
+		}
+		if err := h.db.Model(&organizer).Updates(updates).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to reject organizer")
+			return
+		}
 
 		response = VerificationResponse{
 			Message: "Organizer rejected. Reason: " + req.Reason,
 			Status:  "rejected",
 		}
 
-		// TODO: Send rejection email to organizer
+		// Send rejection email to organizer
+		rejectionData := notifications.OrganizerRejectionData{
+			OrganizerName:   organizer.Name,
+			OrganizerEmail:  organizer.Email,
+			RejectionReason: req.Reason,
+		}
+		if err := h.notifications.SendOrganizerRejectionEmail(organizer.Email, rejectionData); err != nil {
+			// Log the error but don't fail the rejection
+			log.Printf("❌ Failed to send rejection email: %v", err)
+		}
 	}
 
 	json.NewEncoder(w).Encode(response)
+
 }
 
 // SendVerificationEmail sends verification email to organizer
