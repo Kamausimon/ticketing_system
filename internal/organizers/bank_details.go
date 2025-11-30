@@ -2,9 +2,11 @@ package organizers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/security"
 )
 
 // BankDetailsRequest represents bank account details submission
@@ -53,11 +55,27 @@ func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Update bank details
+	// Encrypt sensitive bank details
+	if h.encryption == nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "encryption service not available")
+		return
+	}
+
+	encryptedAccountNumber, encryptedBankCode, err := h.encryption.EncryptBankDetails(
+		req.BankAccountNumber,
+		req.BankCode,
+	)
+	if err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError,
+			fmt.Sprintf("failed to encrypt bank details: %v", err))
+		return
+	}
+
+	// Update bank details with encrypted values
 	updates := map[string]interface{}{
 		"bank_account_name":   req.BankAccountName,
-		"bank_account_number": req.BankAccountNumber,
-		"bank_code":           req.BankCode,
+		"bank_account_number": encryptedAccountNumber,
+		"bank_code":           encryptedBankCode,
 		"bank_country":        req.BankCountry,
 	}
 
@@ -93,11 +111,32 @@ func (h *OrganizerHandler) GetBankDetails(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Decrypt sensitive bank details
+	var accountNumber, bankCode string
+	if h.encryption != nil && organizer.BankAccountNumber != "" {
+		var err error
+		accountNumber, bankCode, err = h.encryption.DecryptBankDetails(
+			organizer.BankAccountNumber,
+			organizer.BankCode,
+		)
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError,
+				fmt.Sprintf("failed to decrypt bank details: %v", err))
+			return
+		}
+	} else {
+		// Fallback for unencrypted data (backward compatibility)
+		accountNumber = organizer.BankAccountNumber
+		bankCode = organizer.BankCode
+	}
+
+	// Return decrypted bank details with masked account number for display
 	bankDetails := map[string]interface{}{
-		"bank_account_name":   organizer.BankAccountName,
-		"bank_account_number": organizer.BankAccountNumber,
-		"bank_code":           organizer.BankCode,
-		"bank_country":        organizer.BankCountry,
+		"bank_account_name":        organizer.BankAccountName,
+		"bank_account_number":      accountNumber, // Full number for editing
+		"bank_account_number_mask": security.MaskBankAccountNumber(accountNumber),
+		"bank_code":                bankCode,
+		"bank_country":             organizer.BankCountry,
 	}
 
 	json.NewEncoder(w).Encode(bankDetails)

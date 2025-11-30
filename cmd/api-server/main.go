@@ -20,6 +20,7 @@ import (
 	"ticketing_system/internal/payments"
 	"ticketing_system/internal/promotions"
 	"ticketing_system/internal/refunds"
+	"ticketing_system/internal/security"
 	"ticketing_system/internal/settlement"
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
@@ -48,11 +49,11 @@ func main() {
 	analytics.StartSystemMetricsCollector(metrics, DB)
 	fmt.Println("✅ System metrics collector started")
 
-	// Load configuration for notifications
+	// Load configuration for notifications and security
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("⚠️  Warning: Failed to load config for notifications: %v\n", err)
-		fmt.Println("⚠️  Notification service will not be available")
+		fmt.Printf("⚠️  Warning: Failed to load config: %v\n", err)
+		fmt.Println("⚠️  Notification and encryption services will not be available")
 	}
 	var notificationHandler *notifications.Handler
 	var notificationService *notifications.NotificationService
@@ -70,13 +71,25 @@ func main() {
 		authHandler = auth.NewAuthHandler(DB, metrics)
 	}
 
+	// Initialize encryption service for sensitive data
+	var encryptionService *security.EncryptionService
+	if cfg != nil {
+		encryptionService, err = security.NewEncryptionService(cfg.Security.EncryptionKey)
+		if err != nil {
+			fmt.Printf("⚠️  Warning: Failed to initialize encryption service: %v\n", err)
+			fmt.Println("⚠️  Bank details encryption will not be available")
+		} else {
+			fmt.Println("✅ Encryption service initialized")
+		}
+	}
+
 	// Initialize 2FA handler
 	twoFactorHandler := auth.NewTwoFactorHandler(DB, "Ticketing System")
 	var organizerHandler *organizers.OrganizerHandler
 	if notificationService != nil {
-		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService)
+		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService, encryptionService)
 	} else {
-		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil)
+		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil, encryptionService)
 	}
 	eventHandler := events.NewEventHandler(DB, metrics)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)

@@ -12,6 +12,7 @@ type Config struct {
 	Server   ServerConfig
 	Email    EmailConfig
 	App      AppConfig
+	Security SecurityConfig
 }
 
 // DatabaseConfig holds database configuration
@@ -55,6 +56,11 @@ type AppConfig struct {
 	FrontendURL string
 }
 
+// SecurityConfig holds security-related configuration
+type SecurityConfig struct {
+	EncryptionKey string // Must be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	config := &Config{
@@ -91,6 +97,15 @@ func Load() (*Config, error) {
 			BaseURL:     getEnv("APP_BASE_URL", "http://localhost:8080"),
 			FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
 		},
+		Security: SecurityConfig{
+			EncryptionKey: getEnv("ENCRYPTION_KEY", "dev-key-32-bytes-length-aes!!"), // Default 32-byte key for development
+		},
+	}
+
+	// Validate encryption key length
+	keyLen := len(config.Security.EncryptionKey)
+	if keyLen != 16 && keyLen != 24 && keyLen != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be 16, 24, or 32 bytes (current: %d bytes)", keyLen)
 	}
 
 	// Email configuration validation (optional - some SMTP servers don't require auth)

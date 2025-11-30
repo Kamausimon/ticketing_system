@@ -8,6 +8,7 @@ import (
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/security"
 
 	"gorm.io/gorm"
 )
@@ -16,13 +17,15 @@ type OrganizerHandler struct {
 	db            *gorm.DB
 	_metrics      *analytics.PrometheusMetrics // Reserved for future instrumentation
 	notifications *notifications.NotificationService
+	encryption    *security.EncryptionService
 }
 
-func NewOrganizerHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService) *OrganizerHandler {
+func NewOrganizerHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService, encryptionService *security.EncryptionService) *OrganizerHandler {
 	return &OrganizerHandler{
 		db:            db,
 		_metrics:      metrics,
 		notifications: notificationService,
+		encryption:    encryptionService,
 	}
 }
 
