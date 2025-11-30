@@ -34,7 +34,7 @@ import (
 func main() {
 	DB := database.Init()
 
-	err := DB.AutoMigrate(&models.User{}, &models.EmailVerification{})
+	err := DB.AutoMigrate(&models.User{}, &models.EmailVerification{}, &models.WaitlistEntry{})
 	if err != nil {
 		fmt.Printf("Migration failed: %v\n", err)
 	} else {
@@ -359,6 +359,19 @@ func main() {
 	router.HandleFunc("/inventory/events/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetEventInventory)).Methods(http.MethodGet)
 	router.HandleFunc("/inventory/status/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetInventoryStatus)).Methods(http.MethodGet)
 	router.HandleFunc("/inventory/bulk-check", inventoryLimiter.HandlerFunc(inventoryHandler.BulkCheckAvailability)).Methods(http.MethodPost)
+
+	// Inventory routes - Capacity Management - with rate limiting
+	router.HandleFunc("/inventory/capacity/tickets/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetTicketClassCapacity)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/capacity/events/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetEventCapacity)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/capacity/events/{id}/monitor", apiLimiter.HandlerFunc(inventoryHandler.MonitorCapacity)).Methods(http.MethodGet)
+
+	// Inventory routes - Waitlist - with rate limiting
+	router.HandleFunc("/inventory/waitlist", inventoryLimiter.HandlerFunc(inventoryHandler.JoinWaitlist)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/waitlist/{id}", apiLimiter.HandlerFunc(inventoryHandler.GetWaitlistPosition)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/waitlist", apiLimiter.HandlerFunc(inventoryHandler.ListUserWaitlist)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/waitlist/{id}/leave", inventoryLimiter.HandlerFunc(inventoryHandler.LeaveWaitlist)).Methods(http.MethodDelete)
+	router.HandleFunc("/inventory/waitlist/events/{id}/stats", apiLimiter.HandlerFunc(inventoryHandler.GetWaitlistStats)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/waitlist/notify", paymentLimiter.HandlerFunc(inventoryHandler.NotifyNextInWaitlist)).Methods(http.MethodPost)
 
 	// Inventory routes - Reservations - with rate limiting
 	router.HandleFunc("/inventory/reservations", inventoryLimiter.HandlerFunc(inventoryHandler.CreateReservation)).Methods(http.MethodPost)
