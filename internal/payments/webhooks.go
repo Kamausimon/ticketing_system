@@ -135,15 +135,21 @@ func (h *PaymentHandler) processIntasendWebhook(event *IntasendWebhookEvent) (bo
 }
 
 // handleIntasendComplete handles successful payment
+// ATOMIC TRANSACTION: Payment verification + ticket generation
 func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, paymentRecord *models.PaymentRecord) (bool, error) {
 	if paymentRecord.Status == models.RecordCompleted {
 		return true, nil // Already processed
 	}
 
 	tx := h.db.Begin()
+	if tx.Error != nil {
+		return false, fmt.Errorf("failed to start transaction: %w", tx.Error)
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			log.Printf("❌ Panic in handleIntasendComplete, transaction rolled back: %v", r)
 		}
 	}()
 
@@ -161,19 +167,7 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 
 	if err := tx.Save(paymentRecord).Error; err != nil {
 		tx.Rollback()
-		return false, err
-	}
-
-	// Update order status
-	if paymentRecord.OrderID != nil {
-		var order models.Order
-		if err := tx.First(&order, *paymentRecord.OrderID).Error; err == nil {
-			order.Status = models.OrderPaid
-			order.PaymentStatus = models.PaymentCompleted
-			order.IsPaymentReceived = true
-			order.CompletedAt = &now
-			tx.Save(&order)
-		}
+		return false, fmt.Errorf("failed to update payment record: %w", err)
 	}
 
 	// Create payment transaction record
@@ -191,11 +185,102 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 	}
 	if err := tx.Create(&transaction).Error; err != nil {
 		tx.Rollback()
-		return false, err
+		return false, fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	tx.Commit()
+	// CRITICAL: Update order status AND generate tickets atomically
+	if paymentRecord.OrderID != nil {
+		var order models.Order
+		if err := tx.Preload("OrderItems.TicketClass.Event").
+			First(&order, *paymentRecord.OrderID).Error; err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("failed to load order: %w", err)
+		}
+
+		// Check if already paid
+		if order.Status == models.OrderPaid || order.Status == models.OrderFulfilled {
+			tx.Commit() // Allow duplicate webhook, but don't reprocess
+			return true, nil
+		}
+
+		// Update order status
+		order.Status = models.OrderPaid
+		order.PaymentStatus = models.PaymentCompleted
+		order.IsPaymentReceived = true
+		order.CompletedAt = &now
+
+		if err := tx.Save(&order).Error; err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("failed to update order: %w", err)
+		}
+
+		// Generate tickets for each order item (within same transaction)
+		for _, item := range order.OrderItems {
+			// Check if tickets already exist
+			var existingCount int64
+			if err := tx.Model(&models.Ticket{}).
+				Where("order_item_id = ?", item.ID).
+				Count(&existingCount).Error; err != nil {
+				tx.Rollback()
+				return false, fmt.Errorf("failed to check existing tickets: %w", err)
+			}
+
+			if existingCount > 0 {
+				continue // Already generated
+			}
+
+			// Create tickets
+			for i := 0; i < item.Quantity; i++ {
+				ticket := models.Ticket{
+					OrderItemID:  item.ID,
+					TicketNumber: generateTicketNumber(item.TicketClass.EventID, order.ID, item.ID, i),
+					HolderName:   fmt.Sprintf("%s %s", order.FirstName, order.LastName),
+					HolderEmail:  order.Email,
+					QRCode:       generateQRCode(item.TicketClass.EventID, order.ID, i),
+					Status:       models.TicketActive,
+				}
+
+				if err := tx.Create(&ticket).Error; err != nil {
+					tx.Rollback()
+					return false, fmt.Errorf("failed to create ticket: %w", err)
+				}
+			}
+		}
+
+		// Mark order as fulfilled after tickets created
+		order.Status = models.OrderFulfilled
+		if err := tx.Save(&order).Error; err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("failed to mark order as fulfilled: %w", err)
+		}
+
+		log.Printf("✅ Payment verified and tickets generated for order %d", order.ID)
+	}
+
+	// Commit transaction - payment + tickets succeed together
+	if err := tx.Commit().Error; err != nil {
+		return false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Track metrics (after successful commit)
+	if h.metrics != nil && paymentRecord.OrderID != nil {
+		// Calculate duration from payment initiation to completion
+		duration := time.Since(paymentRecord.InitiatedAt)
+		h.metrics.TrackPaymentSuccess(event.Provider, "intasend", duration)
+	}
+
 	return true, nil
+}
+
+// Helper functions for ticket generation (duplicated for independence)
+func generateTicketNumber(eventID, orderID, itemID uint, index int) string {
+	timestamp := time.Now().Unix()
+	return fmt.Sprintf("TKT-%d-%d-%d-%d-%d", eventID, orderID, itemID, index, timestamp)
+}
+
+func generateQRCode(eventID, orderID uint, index int) string {
+	timestamp := time.Now().Unix()
+	return fmt.Sprintf("TICKET:EVENT%d:ORDER%d:IDX%d:TIME%d", eventID, orderID, index, timestamp)
 }
 
 // handleIntasendFailed handles failed payment

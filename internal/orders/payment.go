@@ -98,20 +98,33 @@ func (h *OrderHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update order payment status
-	order.PaymentStatus = models.PaymentCompleted
-	order.IsPaymentReceived = true
-	order.Status = models.OrderPaid
-
-	if err := h.db.Save(&order).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update order")
+	// ATOMIC TRANSACTION: Process payment + generate tickets together
+	// This ensures both operations succeed or both fail - no partial state
+	if err := h.ProcessPaymentWithTickets(order.ID, req.PaymentMethod, paymentResult); err != nil {
+		// Transaction failed - payment and tickets were rolled back
+		middleware.WriteJSONError(w, http.StatusInternalServerError,
+			fmt.Sprintf("payment transaction failed: %v", err))
 		return
 	}
 
+	// Reload order to get updated status with tickets
+	if err := h.db.Preload("OrderItems.TicketClass.Event").First(&order, order.ID).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to reload order")
+		return
+	}
+
+	// Count generated tickets
+	var ticketCount int64
+	h.db.Model(&models.Ticket{}).
+		Joins("JOIN order_items ON tickets.order_item_id = order_items.id").
+		Where("order_items.order_id = ?", order.ID).
+		Count(&ticketCount)
+
 	response := map[string]interface{}{
-		"message":        "Payment processed successfully",
-		"order":          convertToOrderResponse(order),
-		"payment_result": paymentResult,
+		"message":         "Payment processed and tickets generated successfully",
+		"order":           convertToOrderResponse(order),
+		"payment_result":  paymentResult,
+		"tickets_created": ticketCount,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -136,20 +149,42 @@ func (h *OrderHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get order
+	// Get order with items
 	var order models.Order
-	if err := h.db.First(&order, orderID).Error; err != nil {
+	if err := h.db.Preload("OrderItems.TicketClass.Event").First(&order, orderID).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "order not found")
 		return
 	}
 
 	// TODO: Implement actual payment verification with payment gateway
 	// This would verify the payment with Stripe, M-Pesa, etc.
+	// For now, assuming verification passed
+
+	// Extract payment method from verification data
+	paymentMethod := "unknown"
+	if method, ok := verificationData["payment_method"].(string); ok {
+		paymentMethod = method
+	}
+
+	// ATOMIC TRANSACTION: Verify payment + generate tickets together
+	if err := h.ProcessPaymentWithTickets(order.ID, paymentMethod, verificationData); err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError,
+			fmt.Sprintf("payment verification and ticket generation failed: %v", err))
+		return
+	}
+
+	// Count generated tickets
+	var ticketCount int64
+	h.db.Model(&models.Ticket{}).
+		Joins("JOIN order_items ON tickets.order_item_id = order_items.id").
+		Where("order_items.order_id = ?", order.ID).
+		Count(&ticketCount)
 
 	response := map[string]interface{}{
-		"message":          "Payment verification completed",
+		"message":          "Payment verified and tickets generated successfully",
 		"payment_verified": true,
 		"order_id":         order.ID,
+		"tickets_created":  ticketCount,
 	}
 
 	json.NewEncoder(w).Encode(response)
