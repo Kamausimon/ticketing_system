@@ -18,6 +18,7 @@ type TicketClass struct {
 	MinPerOrder         *int `gorm:"default:1"`
 	QuantityAvailable   *int
 	QuantitySold        int `gorm:"default:0"`
+	Version             int `gorm:"default:0"` // Optimistic locking version field
 	StartSaleDate       *time.Time
 	EndSaleDate         *time.Time
 	SalesVolume         Money `gorm:"default:0"` // Use Money type instead of float32

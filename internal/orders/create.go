@@ -8,6 +8,9 @@ import (
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CreateOrder handles creating a new order
@@ -113,13 +116,26 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create order items
+	// Create order items with pessimistic locking to prevent race conditions
 	for _, itemReq := range req.Items {
 		var ticketClass models.TicketClass
-		if err := tx.Where("id = ?", itemReq.TicketClassID).First(&ticketClass).Error; err != nil {
+
+		// Use FOR UPDATE to lock the row and prevent concurrent modifications
+		// This ensures only one transaction can update inventory at a time
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", itemReq.TicketClassID).First(&ticketClass).Error; err != nil {
 			tx.Rollback()
 			middleware.WriteJSONError(w, http.StatusNotFound, fmt.Sprintf("ticket class %d not found", itemReq.TicketClassID))
 			return
+		}
+
+		// Re-check availability after acquiring lock (another transaction may have purchased)
+		if ticketClass.QuantityAvailable != nil {
+			available := *ticketClass.QuantityAvailable - ticketClass.QuantitySold
+			if available < itemReq.Quantity {
+				tx.Rollback()
+				middleware.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("only %d tickets available for '%s'", available, ticketClass.Name))
+				return
+			}
 		}
 
 		unitPrice := float64(ticketClass.Price)
@@ -143,10 +159,25 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Update ticket class sold quantity
-		if err := tx.Model(&ticketClass).Update("quantity_sold", ticketClass.QuantitySold+itemReq.Quantity).Error; err != nil {
+		// Atomically update ticket class sold quantity using database-level increment
+		// with optimistic locking to detect concurrent modifications
+		// This prevents race conditions even if lock is somehow bypassed
+		result := tx.Model(&models.TicketClass{}).
+			Where("id = ? AND version = ?", itemReq.TicketClassID, ticketClass.Version).
+			Updates(map[string]interface{}{
+				"quantity_sold": gorm.Expr("quantity_sold + ?", itemReq.Quantity),
+				"version":       gorm.Expr("version + 1"),
+			})
+
+		if result.Error != nil {
 			tx.Rollback()
 			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update ticket inventory")
+			return
+		}
+
+		if result.RowsAffected == 0 {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusConflict, "ticket inventory changed during checkout, please try again")
 			return
 		}
 	}

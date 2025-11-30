@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"ticketing_system/internal/models"
+
+	"gorm.io/gorm"
 )
 
 // SettlementCalculation holds the calculated settlement amounts
@@ -25,123 +27,138 @@ type SettlementCalculation struct {
 
 // CalculateEventSettlement calculates settlement for a specific event
 // This is called AFTER event completion + holding period
+// Uses READ COMMITTED isolation to ensure consistent calculations
 func (s *Service) CalculateEventSettlement(eventID uint) (*SettlementCalculation, error) {
-	// 1. Verify event is completed and past holding period
-	var event models.Event
-	if err := s.db.First(&event, eventID).Error; err != nil {
-		return nil, fmt.Errorf("event not found: %w", err)
-	}
+	var result *SettlementCalculation
 
-	if event.Status != models.EventCompleted {
-		return nil, errors.New("event must be completed before settlement")
-	}
+	// Execute all calculations within a read-only transaction for consistency
+	// This ensures all queries see the same snapshot of data
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// 1. Verify event is completed and past holding period
+		var event models.Event
+		if err := tx.First(&event, eventID).Error; err != nil {
+			return fmt.Errorf("event not found: %w", err)
+		}
 
-	// 2. Get all completed payment records for this event
-	var paymentRecords []models.PaymentRecord
-	if err := s.db.Where("event_id = ? AND type = ? AND status = ?",
-		eventID,
-		models.RecordCustomerPayment,
-		models.RecordCompleted,
-	).Find(&paymentRecords).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch payment records: %w", err)
-	}
+		if event.Status != models.EventCompleted {
+			return errors.New("event must be completed before settlement")
+		}
 
-	if len(paymentRecords) == 0 {
-		return nil, errors.New("no completed payments found for this event")
-	}
-
-	// 3. Calculate gross amount (total ticket sales)
-	var grossAmount models.Money
-	var paymentRecordIDs []uint
-	for _, record := range paymentRecords {
-		grossAmount += record.Amount
-		paymentRecordIDs = append(paymentRecordIDs, record.ID)
-	}
-
-	// 4. Calculate platform fees
-	var platformFeeAmount models.Money
-	if err := s.db.Model(&models.PaymentRecord{}).
-		Where("event_id = ? AND type = ? AND status = ?",
+		// 2. Get all completed payment records for this event
+		var paymentRecords []models.PaymentRecord
+		if err := tx.Where("event_id = ? AND type = ? AND status = ?",
 			eventID,
-			models.RecordPlatformFee,
+			models.RecordCustomerPayment,
 			models.RecordCompleted,
-		).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&platformFeeAmount).Error; err != nil {
-		return nil, fmt.Errorf("failed to calculate platform fees: %w", err)
+		).Find(&paymentRecords).Error; err != nil {
+			return fmt.Errorf("failed to fetch payment records: %w", err)
+		}
+
+		if len(paymentRecords) == 0 {
+			return errors.New("no completed payments found for this event")
+		}
+
+		// 3. Calculate gross amount (total ticket sales)
+		var grossAmount models.Money
+		var paymentRecordIDs []uint
+		for _, record := range paymentRecords {
+			grossAmount += record.Amount
+			paymentRecordIDs = append(paymentRecordIDs, record.ID)
+		}
+
+		// 4. Calculate platform fees atomically
+		var platformFeeAmount models.Money
+		if err := tx.Model(&models.PaymentRecord{}).
+			Where("event_id = ? AND type = ? AND status = ?",
+				eventID,
+				models.RecordPlatformFee,
+				models.RecordCompleted,
+			).
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&platformFeeAmount).Error; err != nil {
+			return fmt.Errorf("failed to calculate platform fees: %w", err)
+		}
+
+		// 5. Calculate gateway fees atomically
+		var gatewayFeeAmount models.Money
+		if err := tx.Model(&models.PaymentRecord{}).
+			Where("event_id = ? AND type = ? AND status = ?",
+				eventID,
+				models.RecordGatewayFee,
+				models.RecordCompleted,
+			).
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&gatewayFeeAmount).Error; err != nil {
+			return fmt.Errorf("failed to calculate gateway fees: %w", err)
+		}
+
+		// 6. Calculate refunds for this event atomically
+		var refundAmount models.Money
+		if err := tx.Model(&models.RefundRecord{}).
+			Where("event_id = ? AND status = ?",
+				eventID,
+				models.RefundCompleted,
+			).
+			Select("COALESCE(SUM(refund_amount), 0)").
+			Scan(&refundAmount).Error; err != nil {
+			return fmt.Errorf("failed to calculate refunds: %w", err)
+		}
+
+		// 7. Calculate chargebacks atomically
+		var chargebackAmount models.Money
+		if err := tx.Model(&models.PaymentRecord{}).
+			Where("event_id = ? AND type = ? AND status = ?",
+				eventID,
+				models.RecordChargeback,
+				models.RecordCompleted,
+			).
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&chargebackAmount).Error; err != nil {
+			return fmt.Errorf("failed to calculate chargebacks: %w", err)
+		}
+
+		// 8. Check for any manual adjustments atomically
+		var adjustmentAmount models.Money
+		if err := tx.Model(&models.PaymentRecord{}).
+			Where("event_id = ? AND type = ?",
+				eventID,
+				models.RecordAdjustment,
+			).
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&adjustmentAmount).Error; err != nil {
+			return fmt.Errorf("failed to calculate adjustments: %w", err)
+		}
+
+		// 9. Calculate net amount
+		netAmount := grossAmount - platformFeeAmount - gatewayFeeAmount - refundAmount - chargebackAmount + adjustmentAmount
+
+		// Ensure net amount is not negative
+		if netAmount < 0 {
+			netAmount = 0
+		}
+
+		result = &SettlementCalculation{
+			OrganizerID:       event.OrganizerID,
+			EventID:           eventID,
+			GrossAmount:       grossAmount,
+			PlatformFeeAmount: platformFeeAmount,
+			GatewayFeeAmount:  gatewayFeeAmount,
+			RefundDeduction:   refundAmount,
+			ChargebackAmount:  chargebackAmount,
+			AdjustmentAmount:  adjustmentAmount,
+			NetAmount:         netAmount,
+			Currency:          event.Currency,
+			PaymentRecordIDs:  paymentRecordIDs,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	// 5. Calculate gateway fees
-	var gatewayFeeAmount models.Money
-	if err := s.db.Model(&models.PaymentRecord{}).
-		Where("event_id = ? AND type = ? AND status = ?",
-			eventID,
-			models.RecordGatewayFee,
-			models.RecordCompleted,
-		).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&gatewayFeeAmount).Error; err != nil {
-		return nil, fmt.Errorf("failed to calculate gateway fees: %w", err)
-	}
-
-	// 6. Calculate refunds for this event
-	var refundAmount models.Money
-	if err := s.db.Model(&models.RefundRecord{}).
-		Where("event_id = ? AND status = ?",
-			eventID,
-			models.RefundCompleted,
-		).
-		Select("COALESCE(SUM(refund_amount), 0)").
-		Scan(&refundAmount).Error; err != nil {
-		return nil, fmt.Errorf("failed to calculate refunds: %w", err)
-	}
-
-	// 7. Calculate chargebacks
-	var chargebackAmount models.Money
-	if err := s.db.Model(&models.PaymentRecord{}).
-		Where("event_id = ? AND type = ? AND status = ?",
-			eventID,
-			models.RecordChargeback,
-			models.RecordCompleted,
-		).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&chargebackAmount).Error; err != nil {
-		return nil, fmt.Errorf("failed to calculate chargebacks: %w", err)
-	}
-
-	// 8. Check for any manual adjustments
-	var adjustmentAmount models.Money
-	if err := s.db.Model(&models.PaymentRecord{}).
-		Where("event_id = ? AND type = ?",
-			eventID,
-			models.RecordAdjustment,
-		).
-		Select("COALESCE(SUM(amount), 0)").
-		Scan(&adjustmentAmount).Error; err != nil {
-		return nil, fmt.Errorf("failed to calculate adjustments: %w", err)
-	}
-
-	// 9. Calculate net amount
-	netAmount := grossAmount - platformFeeAmount - gatewayFeeAmount - refundAmount - chargebackAmount + adjustmentAmount
-
-	// Ensure net amount is not negative
-	if netAmount < 0 {
-		netAmount = 0
-	}
-
-	return &SettlementCalculation{
-		OrganizerID:       event.OrganizerID,
-		EventID:           eventID,
-		GrossAmount:       grossAmount,
-		PlatformFeeAmount: platformFeeAmount,
-		GatewayFeeAmount:  gatewayFeeAmount,
-		RefundDeduction:   refundAmount,
-		ChargebackAmount:  chargebackAmount,
-		AdjustmentAmount:  adjustmentAmount,
-		NetAmount:         netAmount,
-		Currency:          event.Currency,
-		PaymentRecordIDs:  paymentRecordIDs,
-	}, nil
+	return result, nil
 }
 
 // CalculateOrganizerSettlement calculates settlement for all completed events by an organizer
