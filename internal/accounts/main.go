@@ -124,6 +124,8 @@ type ActivityFilter struct {
 	Page      int        `json:"page"`
 	Limit     int        `json:"limit"`
 	Action    *string    `json:"action"`
+	Category  *string    `json:"category"`
+	Success   *bool      `json:"success"`
 	StartDate *time.Time `json:"start_date"`
 	EndDate   *time.Time `json:"end_date"`
 }

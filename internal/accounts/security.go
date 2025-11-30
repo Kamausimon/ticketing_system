@@ -75,6 +75,9 @@ func (h *AccountHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 	// Log activity
 	h.logAccountActivity(user.AccountID, "password_changed", "Password changed successfully", getClientIP(r))
 
+	// Log security event
+	logSecurityEvent(h.db, user.AccountID, "password_changed", getClientIP(r), r.UserAgent())
+
 	response := map[string]interface{}{
 		"message": "Password changed successfully",
 	}
@@ -99,31 +102,36 @@ func (h *AccountHandler) GetLoginHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// For now, return mock login history since we don't have a login_history table
-	// In production, you would query actual login history from database
-	var account models.Account
-	if err := h.db.Where("id = ?", user.AccountID).First(&account).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusNotFound, "account not found")
+	// Fetch actual login history from database
+	var loginHistory []models.LoginHistory
+	if err := h.db.Where("account_id = ?", user.AccountID).
+		Order("login_at DESC").
+		Limit(50).
+		Find(&loginHistory).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch login history")
 		return
 	}
 
-	// Create mock login history based on account info
-	loginHistory := []LoginHistory{}
-
-	if account.LastLoginDate != nil {
-		loginHistory = append(loginHistory, LoginHistory{
-			ID:        1,
-			AccountID: account.ID,
-			IPAddress: *account.LastIP,
-			UserAgent: nil, // Not stored in current model
-			Location:  nil, // Would need geolocation service
-			Success:   true,
-			Timestamp: *account.LastLoginDate,
-		})
+	// Convert to response format
+	responseHistory := make([]map[string]interface{}, len(loginHistory))
+	for i, login := range loginHistory {
+		responseHistory[i] = map[string]interface{}{
+			"id":               login.ID,
+			"ip_address":       login.IPAddress,
+			"user_agent":       login.UserAgent,
+			"location":         login.Location,
+			"device":           login.Device,
+			"browser":          login.Browser,
+			"success":          login.Success,
+			"fail_reason":      login.FailReason,
+			"login_at":         login.LoginAt,
+			"logout_at":        login.LogoutAt,
+			"session_duration": login.SessionDuration,
+		}
 	}
 
 	response := map[string]interface{}{
-		"login_history": loginHistory,
+		"login_history": responseHistory,
 		"count":         len(loginHistory),
 	}
 
@@ -154,15 +162,26 @@ func (h *AccountHandler) GetSecuritySettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Check if 2FA is enabled
+	var twoFactorAuth models.TwoFactorAuth
+	twoFactorEnabled := false
+	if err := h.db.Where("user_id = ? AND enabled = ?", userID, true).First(&twoFactorAuth).Error; err == nil {
+		twoFactorEnabled = true
+	}
+
+	// Get recent logins
+	recentLogins := getRecentLogins(h.db, user.AccountID)
+
 	// Return security settings
 	settings := map[string]interface{}{
-		"two_factor_enabled":   false, // Not implemented yet
-		"email_notifications":  true,  // Default
-		"login_notifications":  true,  // Default
+		"two_factor_enabled":   twoFactorEnabled,
+		"email_notifications":  true, // Default
+		"login_notifications":  true, // Default
 		"account_status":       "active",
 		"last_password_change": user.UpdatedAt, // Approximation
 		"last_login":           account.LastLoginDate,
 		"last_login_ip":        account.LastIP,
+		"recent_logins":        recentLogins,
 	}
 
 	json.NewEncoder(w).Encode(settings)
@@ -215,9 +234,27 @@ func (h *AccountHandler) LockAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement account locking logic
+	// Parse request to get target account ID
+	var req struct {
+		AccountID uint `json:"account_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.AccountID == 0 {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "account_id is required")
+		return
+	}
+
+	// Log security event
+	logSecurityEvent(h.db, req.AccountID, "account_locked", getClientIP(r), r.UserAgent())
+
+	// TODO: Implement actual account locking logic in Account model
 	response := map[string]interface{}{
 		"message": "Account lock functionality not implemented yet",
+		"note":    "Security event has been logged",
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -245,37 +282,73 @@ func (h *AccountHandler) UnlockAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement account unlocking logic
+	// Parse request to get target account ID
+	var req struct {
+		AccountID uint `json:"account_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.AccountID == 0 {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "account_id is required")
+		return
+	}
+
+	// Log security event
+	logSecurityEvent(h.db, req.AccountID, "account_unlocked", getClientIP(r), r.UserAgent())
+
+	// TODO: Implement actual account unlocking logic in Account model
 	response := map[string]interface{}{
 		"message": "Account unlock functionality not implemented yet",
+		"note":    "Security event has been logged",
 	}
 
 	json.NewEncoder(w).Encode(response)
 }
 
-// getRecentLogins returns recent login records (mock data for now)
-func getRecentLogins(accountID uint) []LoginRecord {
-	// In a real implementation, this would fetch from a login_logs table
-	return []LoginRecord{
-		{
-			Timestamp: time.Now().Add(-1 * time.Hour),
-			IPAddress: "192.168.1.100",
-			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-			Location:  "Nairobi, Kenya",
-			Success:   true,
-		},
-		{
-			Timestamp: time.Now().Add(-6 * time.Hour),
-			IPAddress: "192.168.1.100",
-			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X)",
-			Location:  "Nairobi, Kenya",
-			Success:   true,
-		},
+// getRecentLogins returns recent login records from database
+func getRecentLogins(db *gorm.DB, accountID uint) []LoginRecord {
+	var loginHistory []models.LoginHistory
+	if err := db.Where("account_id = ?", accountID).
+		Order("login_at DESC").
+		Limit(10).
+		Find(&loginHistory).Error; err != nil {
+		return []LoginRecord{}
 	}
+
+	// Convert to LoginRecord format
+	records := make([]LoginRecord, len(loginHistory))
+	for i, login := range loginHistory {
+		location := ""
+		if login.Location != nil {
+			location = *login.Location
+		}
+		records[i] = LoginRecord{
+			Timestamp: login.LoginAt,
+			IPAddress: login.IPAddress,
+			UserAgent: login.UserAgent,
+			Location:  location,
+			Success:   login.Success,
+		}
+	}
+
+	return records
 }
 
-// logSecurityEvent logs a security-related event (mock implementation)
+// logSecurityEvent logs a security-related event
 func logSecurityEvent(db *gorm.DB, accountID uint, action, ipAddress, userAgent string) {
-	// In a real implementation, this would insert into a security_logs table
-	fmt.Printf("Security Event: Account %d - %s from %s\n", accountID, action, ipAddress)
+	activity := models.AccountActivity{
+		AccountID:   accountID,
+		Action:      action,
+		Category:    models.ActivityCategorySecurity,
+		Description: fmt.Sprintf("Security event: %s", action),
+		IPAddress:   ipAddress,
+		UserAgent:   userAgent,
+		Success:     true,
+		Severity:    models.SeverityWarning,
+		Timestamp:   time.Now(),
+	}
+	db.Create(&activity)
 }

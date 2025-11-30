@@ -328,10 +328,11 @@ func parsePromotionFilter(r *http.Request) PromotionFilter {
 	}
 
 	if isPublic := r.URL.Query().Get("is_public"); isPublic != "" {
-		if isPublic == "true" {
+		switch isPublic {
+		case "true":
 			val := true
 			filter.IsPublic = &val
-		} else if isPublic == "false" {
+		case "false":
 			val := false
 			filter.IsPublic = &val
 		}

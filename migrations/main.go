@@ -146,6 +146,17 @@ func runMigrations(db *gorm.DB) error {
 		return err
 	}
 
+	// Activity logging models
+	log.Println("📝 Migrating activity logging models...")
+	err = db.AutoMigrate(
+		&models.AccountActivity{},
+		&models.LoginHistory{},
+		&models.NotificationPreferences{},
+	)
+	if err != nil {
+		return err
+	}
+
 	log.Println("✨ Creating custom indexes...")
 	err = createCustomIndexes(db)
 	if err != nil {
@@ -199,6 +210,14 @@ func createCustomIndexes(db *gorm.DB) error {
 		// Refund line items indexes
 		"CREATE INDEX IF NOT EXISTS idx_refund_line_items_lookup ON refund_line_items(refund_record_id, order_item_id);",
 		"CREATE INDEX IF NOT EXISTS idx_refund_line_items_ticket ON refund_line_items(ticket_id) WHERE ticket_id IS NOT NULL;",
+
+		// Activity logging indexes
+		"CREATE INDEX IF NOT EXISTS idx_activities_recent ON account_activities(account_id, timestamp DESC);",
+		"CREATE INDEX IF NOT EXISTS idx_activities_by_category ON account_activities(category, timestamp DESC);",
+		"CREATE INDEX IF NOT EXISTS idx_activities_by_action ON account_activities(action, success, timestamp DESC);",
+		"CREATE INDEX IF NOT EXISTS idx_activities_failed ON account_activities(success, severity, timestamp DESC) WHERE success = false;",
+		"CREATE INDEX IF NOT EXISTS idx_login_history_recent ON login_history(account_id, login_at DESC);",
+		"CREATE INDEX IF NOT EXISTS idx_login_history_failed ON login_history(ip_address, success, login_at DESC) WHERE success = false;",
 	}
 
 	for _, indexSQL := range indexes {

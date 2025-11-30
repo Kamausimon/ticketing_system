@@ -289,27 +289,3 @@ func calculatePromotionDiscount(promo *models.Promotion, orderAmount models.Mone
 
 	return discount
 }
-
-// Helper function to check if promotion is currently valid
-func isPromotionCurrentlyValid(promo *models.Promotion) bool {
-	now := time.Now()
-
-	// Check status
-	if promo.Status != models.PromotionActive {
-		return false
-	}
-
-	// Check dates
-	if now.Before(promo.StartDate) || now.After(promo.EndDate) {
-		return false
-	}
-
-	// Check usage limit
-	if !promo.IsUnlimited && promo.UsageLimit != nil {
-		if promo.UsageCount >= *promo.UsageLimit {
-			return false
-		}
-	}
-
-	return true
-}

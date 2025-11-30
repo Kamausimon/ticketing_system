@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"ticketing_system/internal/accounts"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
@@ -23,12 +24,14 @@ type AuthHandler struct {
 	db                  *gorm.DB
 	metrics             *analytics.PrometheusMetrics
 	notificationService *notifications.NotificationService
+	activityLogger      *accounts.ActivityLogger
 }
 
 func NewAuthHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *AuthHandler {
 	return &AuthHandler{
-		db:      db,
-		metrics: metrics,
+		db:             db,
+		metrics:        metrics,
+		activityLogger: accounts.NewActivityLogger(db),
 	}
 }
 
@@ -38,6 +41,7 @@ func NewAuthHandlerWithNotifications(db *gorm.DB, metrics *analytics.PrometheusM
 		db:                  db,
 		metrics:             metrics,
 		notificationService: notifService,
+		activityLogger:      accounts.NewActivityLogger(db),
 	}
 }
 
@@ -143,6 +147,11 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		h.metrics.UsersRegistered.Inc()
 	}
 
+	// Log registration activity
+	if h.activityLogger != nil {
+		h.activityLogger.LogRegistration(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
+	}
+
 	response := RegisterReponse{
 		Message: "user registered successfully. Please check your email to verify your account",
 		UserId:  user.ID,
@@ -179,6 +188,10 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		if h.metrics != nil {
 			h.metrics.TrackLoginAttempt("failed")
 		}
+		// Log failed login
+		if h.activityLogger != nil {
+			h.activityLogger.LogLoginFailed(user.AccountID, r.RemoteAddr, r.Header.Get("User-Agent"), "invalid password")
+		}
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -208,6 +221,11 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 	// Track successful login attempt
 	if h.metrics != nil {
 		h.metrics.TrackLoginAttempt("success")
+	}
+
+	// Log successful login
+	if h.activityLogger != nil {
+		h.activityLogger.LogLogin(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
 	}
 
 	expirationDuration := time.Hour
@@ -245,6 +263,14 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) LogoutUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	userID := middleware.GetUserIDFromToken(r)
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err == nil {
+		// Log logout activity
+		if h.activityLogger != nil {
+			h.activityLogger.LogLogout(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
+		}
+	}
+
 	if err := h.db.Model(&models.User{}).Where("id =  ?", userID).Updates(map[string]interface{}{
 		"refresh_token":     nil,
 		"refresh_token_exp": nil,
@@ -413,6 +439,11 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	attempt.TokenValid = true
 	h.db.Create(&attempt)
 
+	// Log password reset activity
+	if h.activityLogger != nil {
+		h.activityLogger.LogPasswordReset(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
+	}
+
 	// Send confirmation email if notification service available
 	if h.notificationService != nil {
 		h.notificationService.SendPlainEmail([]string{user.Email}, "Password Reset Successful", "Your password has been successfully reset.")
@@ -545,6 +576,11 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Log password reset request
+	if userExists && h.activityLogger != nil {
+		h.activityLogger.LogPasswordResetRequest(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
+	}
+
 	// Send email with reset token if user exists
 	if userExists && h.notificationService != nil {
 		h.notificationService.SendPasswordResetEmail(user.Email, user.FirstName, resetToken)
@@ -633,6 +669,14 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.Save(&verification).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update verification record")
 		return
+	}
+
+	// Get user for activity logging
+	var user models.User
+	if err := h.db.First(&user, verification.UserID).Error; err == nil {
+		if h.activityLogger != nil {
+			h.activityLogger.LogEmailVerified(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
+		}
 	}
 
 	response := VerifyEmailResponse{

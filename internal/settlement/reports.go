@@ -151,12 +151,13 @@ func (s *Service) GetOrganizerSettlementSummary(organizerID uint, startDate, end
 		totalRefunds += item.RefundDeduction
 		totalNet += item.NetAmount
 
-		if item.Status == models.SettlementCompleted {
+		switch item.Status {
+		case models.SettlementCompleted:
 			completedAmount += item.NetAmount
 			if lastSettlementDate == nil || (item.CompletedAt != nil && item.CompletedAt.After(*lastSettlementDate)) {
 				lastSettlementDate = item.CompletedAt
 			}
-		} else if item.Status == models.SettlementPending || item.Status == models.SettlementReadyToProcess {
+		case models.SettlementPending, models.SettlementReadyToProcess:
 			pendingAmount += item.NetAmount
 		}
 	}

@@ -2,7 +2,6 @@ package accounts
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"ticketing_system/internal/middleware"
@@ -219,26 +218,4 @@ func (h *AccountHandler) GetSupportedCountries(w http.ResponseWriter, r *http.Re
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"countries": countries,
 	})
-}
-
-// validateAddressUpdate validates address update request
-func validateAddressUpdate(req AddressUpdateRequest) error {
-	if req.Address1 == "" {
-		return fmt.Errorf("address line 1 is required")
-	}
-	if req.City == "" {
-		return fmt.Errorf("city is required")
-	}
-	if req.Country == "" {
-		return fmt.Errorf("country is required")
-	}
-	return nil
-}
-
-// getStringValue safely gets string value from pointer
-func getStringValue(str *string) string {
-	if str == nil {
-		return ""
-	}
-	return *str
 }

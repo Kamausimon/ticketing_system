@@ -207,7 +207,7 @@ func (h *AccountHandler) GetAccountSettings(w http.ResponseWriter, r *http.Reque
 		DateTimeFormat: getDateTimeFormatString(account.DateTimeFormatID),
 		Currency:       getCurrencyString(account.CurrencyID),
 		Language:       "en", // Default for now
-		Notifications:  getNotificationSettings(user.AccountID),
+		Notifications:  getNotificationSettings(h.db, user.AccountID),
 	}
 
 	json.NewEncoder(w).Encode(settings)
@@ -348,22 +348,63 @@ func getCurrencyString(currencyID *int) string {
 	return "USD"
 }
 
-func getNotificationSettings(accountID uint) NotificationSettings {
-	// Default notification settings
-	// In a real implementation, this would fetch from a notifications table
+func getNotificationSettings(db *gorm.DB, accountID uint) NotificationSettings {
+	var prefs models.NotificationPreferences
+
+	// Try to fetch existing preferences
+	if err := db.Where("account_id = ?", accountID).First(&prefs).Error; err != nil {
+		// If not found, create default preferences
+		prefs = models.NotificationPreferences{
+			AccountID:            accountID,
+			EmailNotifications:   true,
+			SMSNotifications:     false,
+			PushNotifications:    true,
+			EventUpdates:         true,
+			PaymentNotifications: true,
+			SecurityAlerts:       true,
+			MarketingEmails:      false,
+		}
+		db.Create(&prefs)
+	}
+
 	return NotificationSettings{
-		EmailNotifications:   true,
-		SMSNotifications:     false,
-		PushNotifications:    true,
-		EventUpdates:         true,
-		PaymentNotifications: true,
-		SecurityAlerts:       true,
-		MarketingEmails:      false,
+		EmailNotifications:   prefs.EmailNotifications,
+		SMSNotifications:     prefs.SMSNotifications,
+		PushNotifications:    prefs.PushNotifications,
+		EventUpdates:         prefs.EventUpdates,
+		PaymentNotifications: prefs.PaymentNotifications,
+		SecurityAlerts:       prefs.SecurityAlerts,
+		MarketingEmails:      prefs.MarketingEmails,
 	}
 }
 
 func updateNotificationSettings(db *gorm.DB, accountID uint, settings NotificationSettings) error {
-	// In a real implementation, this would update a notifications table
-	// For now, we'll just return nil (settings are stored in memory/defaults)
-	return nil
+	var prefs models.NotificationPreferences
+
+	// Check if preferences exist
+	if err := db.Where("account_id = ?", accountID).First(&prefs).Error; err != nil {
+		// Create new preferences if not found
+		prefs = models.NotificationPreferences{
+			AccountID:            accountID,
+			EmailNotifications:   settings.EmailNotifications,
+			SMSNotifications:     settings.SMSNotifications,
+			PushNotifications:    settings.PushNotifications,
+			EventUpdates:         settings.EventUpdates,
+			PaymentNotifications: settings.PaymentNotifications,
+			SecurityAlerts:       settings.SecurityAlerts,
+			MarketingEmails:      settings.MarketingEmails,
+		}
+		return db.Create(&prefs).Error
+	}
+
+	// Update existing preferences
+	prefs.EmailNotifications = settings.EmailNotifications
+	prefs.SMSNotifications = settings.SMSNotifications
+	prefs.PushNotifications = settings.PushNotifications
+	prefs.EventUpdates = settings.EventUpdates
+	prefs.PaymentNotifications = settings.PaymentNotifications
+	prefs.SecurityAlerts = settings.SecurityAlerts
+	prefs.MarketingEmails = settings.MarketingEmails
+
+	return db.Save(&prefs).Error
 }

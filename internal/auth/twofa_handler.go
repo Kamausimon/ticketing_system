@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"ticketing_system/internal/accounts"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/pkg/qrcode"
@@ -16,17 +17,19 @@ import (
 
 // TwoFactorHandler handles 2FA-related requests
 type TwoFactorHandler struct {
-	db     *gorm.DB
-	config *TOTPConfig
-	issuer string // App name for TOTP
+	db             *gorm.DB
+	config         *TOTPConfig
+	issuer         string // App name for TOTP
+	activityLogger *accounts.ActivityLogger
 }
 
 // NewTwoFactorHandler creates a new 2FA handler
 func NewTwoFactorHandler(db *gorm.DB, issuer string) *TwoFactorHandler {
 	return &TwoFactorHandler{
-		db:     db,
-		config: DefaultTOTPConfig(),
-		issuer: issuer,
+		db:             db,
+		config:         DefaultTOTPConfig(),
+		issuer:         issuer,
+		activityLogger: accounts.NewActivityLogger(db),
 	}
 }
 
@@ -239,6 +242,14 @@ func (h *TwoFactorHandler) VerifySetup(w http.ResponseWriter, r *http.Request) {
 	// Log successful setup
 	h.logAttempt(userID, true, "setup_completed", r)
 
+	// Get user for activity logging
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err == nil {
+		if h.activityLogger != nil {
+			h.activityLogger.Log2FAEnabled(user.AccountID, &user.ID, r.RemoteAddr, r.UserAgent())
+		}
+	}
+
 	response := map[string]interface{}{
 		"message": "Two-factor authentication has been successfully enabled",
 		"enabled": true,
@@ -289,7 +300,7 @@ func (h *TwoFactorHandler) VerifyLogin(w http.ResponseWriter, r *http.Request, t
 
 	if req.IsRecoveryCode {
 		// Validate recovery code
-		valid = h.validateRecoveryCode(userID, twoFactorAuth.ID, req.Code, r)
+		valid = h.validateRecoveryCode(twoFactorAuth.ID, req.Code, r)
 	} else {
 		// Validate TOTP code
 		valid, err = ValidateTOTPCode(twoFactorAuth.Secret, req.Code, h.config)
@@ -312,6 +323,11 @@ func (h *TwoFactorHandler) VerifyLogin(w http.ResponseWriter, r *http.Request, t
 
 	// Log successful verification
 	h.logAttempt(userID, true, "login_verified", r)
+
+	// Log 2FA verification activity
+	if h.activityLogger != nil {
+		h.activityLogger.Log2FAVerified(user.AccountID, &user.ID, r.RemoteAddr, r.UserAgent())
+	}
 
 	// Generate full access token
 	token, err := MakeJWT(userID, tokenSecret, time.Hour)
@@ -421,6 +437,11 @@ func (h *TwoFactorHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit().Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to commit changes")
 		return
+	}
+
+	// Log 2FA disabled activity
+	if h.activityLogger != nil {
+		h.activityLogger.Log2FADisabled(user.AccountID, &user.ID, r.RemoteAddr, r.UserAgent())
 	}
 
 	response := map[string]interface{}{
@@ -564,6 +585,11 @@ func (h *TwoFactorHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Log recovery codes regeneration
+	if h.activityLogger != nil {
+		h.activityLogger.LogRecoveryCodesRegenerated(user.AccountID, &user.ID, r.RemoteAddr, r.UserAgent())
+	}
+
 	response := map[string]interface{}{
 		"message":        "Recovery codes regenerated successfully",
 		"recovery_codes": recoveryCodes,
@@ -574,7 +600,7 @@ func (h *TwoFactorHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *htt
 }
 
 // validateRecoveryCode validates and marks a recovery code as used
-func (h *TwoFactorHandler) validateRecoveryCode(userID, twoFactorAuthID uint, code string, r *http.Request) bool {
+func (h *TwoFactorHandler) validateRecoveryCode(twoFactorAuthID uint, code string, r *http.Request) bool {
 	// Get all unused recovery codes for this 2FA config
 	var recoveryCodes []models.RecoveryCode
 	if err := h.db.Where("two_factor_auth_id = ? AND used = ?", twoFactorAuthID, false).

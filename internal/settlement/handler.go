@@ -584,12 +584,13 @@ func (h *SettlementHandler) HandleSettlementWebhook(w http.ResponseWriter, r *ht
 		return
 	}
 
-	if webhook.Status == "completed" {
+	switch webhook.Status {
+	case "completed":
 		if err := h.service.CompleteSettlementItem(webhook.SettlementItemID, webhook.ExternalTransactionID); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-	} else if webhook.Status == "failed" {
+	case "failed":
 		if err := h.service.FailSettlementItem(webhook.SettlementItemID, webhook.FailureReason); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
