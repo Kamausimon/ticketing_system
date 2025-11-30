@@ -306,6 +306,11 @@ func main() {
 	router.HandleFunc("/tickets/checkin/undo", ticketHandler.UndoCheckIn).Methods(http.MethodPost)
 	router.HandleFunc("/tickets/checkin/stats", ticketHandler.GetCheckInStats).Methods(http.MethodGet)
 
+	// Ticket routes - Bulk Operations
+	router.HandleFunc("/tickets/bulk/export", ticketHandler.BulkExportTickets).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/bulk/stats", ticketHandler.GetBulkTicketStats).Methods(http.MethodGet)
+	router.HandleFunc("/tickets/bulk/status", ticketHandler.BulkUpdateTicketStatus).Methods(http.MethodPost)
+
 	// Ticket routes - Event tickets (Organizer only)
 	router.HandleFunc("/organizers/tickets", ticketHandler.ListEventTickets).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/tickets/filter", ticketHandler.FilterEventTicketsAdvanced).Methods(http.MethodGet)
@@ -413,6 +418,11 @@ func main() {
 	// Refund routes - Organizer
 	router.HandleFunc("/organizers/refunds", refundHandler.ListRefundsByOrganizer).Methods(http.MethodGet)
 
+	// Refund routes - Bulk Operations
+	router.HandleFunc("/refunds/bulk/process", refundHandler.ProcessBulkRefunds).Methods(http.MethodPost)
+	router.HandleFunc("/refunds/bulk/auto-approve", refundHandler.AutoApproveBulkRefunds).Methods(http.MethodPost)
+	router.HandleFunc("/refunds/bulk/stats", refundHandler.GetBulkRefundStats).Methods(http.MethodGet)
+
 	// Settlement routes - Calculation & Preview
 	router.HandleFunc("/settlements/calculate/event/{id}", settlementHandler.CalculateEventSettlement).Methods(http.MethodGet)
 	router.HandleFunc("/settlements/preview", settlementHandler.GetSettlementPreview).Methods(http.MethodGet)
@@ -467,6 +477,15 @@ func main() {
 	router.HandleFunc("/attendees/{id}", attendeeHandler.UpdateAttendeeInfo).Methods(http.MethodPut)
 	router.HandleFunc("/attendees/{id}/no-show", attendeeHandler.MarkAttendeeAsNoShow).Methods(http.MethodPost)
 	router.HandleFunc("/attendees/{id}/transfer", attendeeHandler.TransferAttendee).Methods(http.MethodPost)
+
+	// Attendee routes - Bulk Operations
+	router.HandleFunc("/attendees/bulk/email", func(w http.ResponseWriter, r *http.Request) {
+		attendeeHandler.SendBulkEmail(w, r, notificationService)
+	}).Methods(http.MethodPost)
+	router.HandleFunc("/attendees/bulk/export", attendeeHandler.ExportAttendeesData).Methods(http.MethodPost)
+	router.HandleFunc("/attendees/event/update-email", func(w http.ResponseWriter, r *http.Request) {
+		attendeeHandler.SendEventUpdateEmail(w, r, notificationService)
+	}).Methods(http.MethodPost)
 
 	// Attendee routes - Export & Reports
 	router.HandleFunc("/attendees/export", attendeeHandler.ExportAttendeeList).Methods(http.MethodGet)
