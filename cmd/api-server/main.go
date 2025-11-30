@@ -196,11 +196,13 @@ func main() {
 
 	// Event routes - Public
 	router.HandleFunc("/events", eventHandler.ListEvents).Methods(http.MethodGet)
+	router.HandleFunc("/events/search", eventHandler.SearchEvents).Methods(http.MethodGet)
 	router.HandleFunc("/events/{id}", eventHandler.GetEventDetails).Methods(http.MethodGet)
 	router.HandleFunc("/events/{id}/images", eventHandler.GetEventImages).Methods(http.MethodGet)
 
 	// Event routes - Organizer only
 	router.HandleFunc("/organizers/events", eventHandler.ListOrganizerEvents).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/events/search", eventHandler.SearchOrganizerEvents).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/events", eventHandler.CreateEvent).Methods(http.MethodPost)
 	router.HandleFunc("/organizers/events/{id}", eventHandler.UpdateEvent).Methods(http.MethodPut)
 	router.HandleFunc("/organizers/events/{id}", eventHandler.DeleteEvent).Methods(http.MethodDelete)
@@ -259,6 +261,7 @@ func main() {
 
 	// Order routes - Viewing
 	router.HandleFunc("/orders", orderHandler.ListOrders).Methods(http.MethodGet)
+	router.HandleFunc("/orders/search", orderHandler.SearchOrders).Methods(http.MethodGet)
 	router.HandleFunc("/orders/{id}", orderHandler.GetOrderDetails).Methods(http.MethodGet)
 	router.HandleFunc("/orders/{id}/summary", orderHandler.GetOrderSummary).Methods(http.MethodGet)
 	router.HandleFunc("/orders/stats", orderHandler.GetOrderStats).Methods(http.MethodGet)
@@ -274,6 +277,7 @@ func main() {
 
 	// Order routes - Organizer view
 	router.HandleFunc("/organizers/orders", orderHandler.ListOrganizerOrders).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/orders/search", orderHandler.SearchOrganizerOrders).Methods(http.MethodGet)
 
 	// Ticket routes - Generation
 	router.Handle("/tickets/generate", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.GenerateTickets))).Methods(http.MethodPost)
@@ -304,6 +308,8 @@ func main() {
 
 	// Ticket routes - Event tickets (Organizer only)
 	router.HandleFunc("/organizers/tickets", ticketHandler.ListEventTickets).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/tickets/filter", ticketHandler.FilterEventTicketsAdvanced).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/tickets/search", ticketHandler.SearchEventTickets).Methods(http.MethodGet)
 
 	// Promotion routes - Creation & Management
 	router.HandleFunc("/promotions", promotionHandler.CreatePromotion).Methods(http.MethodPost)
@@ -444,7 +450,9 @@ func main() {
 
 	// Attendee routes - Listing & Search
 	router.HandleFunc("/attendees", attendeeHandler.ListAttendees).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/filter", attendeeHandler.FilterAttendees).Methods(http.MethodGet)
 	router.HandleFunc("/attendees/search", attendeeHandler.SearchAttendees).Methods(http.MethodGet)
+	router.HandleFunc("/attendees/search/event", attendeeHandler.SearchAttendeesByEvent).Methods(http.MethodGet)
 	router.HandleFunc("/attendees/count", attendeeHandler.GetAttendeeCount).Methods(http.MethodGet)
 	router.HandleFunc("/attendees/{id}", attendeeHandler.GetAttendeeDetails).Methods(http.MethodGet)
 	router.HandleFunc("/attendees/ticket", attendeeHandler.GetAttendeeByTicket).Methods(http.MethodGet)
