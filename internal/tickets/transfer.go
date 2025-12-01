@@ -2,10 +2,12 @@ package tickets
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -76,19 +78,72 @@ func (h *TicketHandler) TransferTicket(w http.ResponseWriter, r *http.Request) {
 	// Check if event allows transfers (in production, add this to Event model)
 	// For now, we'll allow all transfers
 
+	// Store original holder info for history
+	originalHolderName := ticket.HolderName
+	originalHolderEmail := ticket.HolderEmail
+
 	// Update ticket holder
 	ticket.HolderName = req.NewHolderName
 	ticket.HolderEmail = req.NewHolderEmail
 
-	if err := h.db.Save(&ticket).Error; err != nil {
+	// Begin transaction to save ticket and log transfer history
+	tx := h.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Save(&ticket).Error; err != nil {
+		tx.Rollback()
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to transfer ticket")
 		return
 	}
 
+	// Log transfer in history
+	transferHistory := models.TicketTransferHistory{
+		TicketID:        uint(ticketID),
+		FromHolderName:  originalHolderName,
+		FromHolderEmail: originalHolderEmail,
+		ToHolderName:    req.NewHolderName,
+		ToHolderEmail:   req.NewHolderEmail,
+		TransferredBy:   userID,
+		TransferReason:  req.TransferReason,
+		IPAddress:       r.RemoteAddr,
+		UserAgent:       r.UserAgent(),
+	}
+
+	if err := tx.Create(&transferHistory).Error; err != nil {
+		tx.Rollback()
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to log transfer history")
+		return
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to complete transfer")
+		return
+	}
+
+	// Log activity for audit
+	activity := models.AccountActivity{
+		AccountID:   user.AccountID,
+		UserID:      &userID,
+		Action:      models.ActionTicketTransferred,
+		Category:    models.ActivityCategoryTicket,
+		Description: fmt.Sprintf("Ticket %s transferred from %s to %s", ticket.TicketNumber, originalHolderEmail, req.NewHolderEmail),
+		IPAddress:   r.RemoteAddr,
+		UserAgent:   r.UserAgent(),
+		Success:     true,
+		Severity:    models.SeverityInfo,
+		Resource:    "ticket",
+		Timestamp:   time.Now(),
+	}
+	h.db.Create(&activity)
+
 	// In production, you would:
 	// 1. Send email to new holder with ticket details
 	// 2. Send confirmation to original holder
-	// 3. Log the transfer for audit purposes
 
 	response := map[string]interface{}{
 		"message":          "Ticket transferred successfully",
@@ -145,14 +200,43 @@ func (h *TicketHandler) GetTransferHistory(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// In production, you would have a ticket_transfer_history table
-	// For now, return mock data or current holder info
+	// Fetch transfer history from database
+	var transferHistory []models.TicketTransferHistory
+	if err := h.db.Where("ticket_id = ?", ticketID).Order("transferred_at DESC").Find(&transferHistory).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch transfer history")
+		return
+	}
+
+	// Build transfer history response
+	type TransferRecord struct {
+		ID              uint      `json:"id"`
+		FromHolderName  string    `json:"from_holder_name"`
+		FromHolderEmail string    `json:"from_holder_email"`
+		ToHolderName    string    `json:"to_holder_name"`
+		ToHolderEmail   string    `json:"to_holder_email"`
+		TransferredAt   time.Time `json:"transferred_at"`
+		TransferReason  string    `json:"transfer_reason,omitempty"`
+	}
+
+	transfers := make([]TransferRecord, len(transferHistory))
+	for i, th := range transferHistory {
+		transfers[i] = TransferRecord{
+			ID:              th.ID,
+			FromHolderName:  th.FromHolderName,
+			FromHolderEmail: th.FromHolderEmail,
+			ToHolderName:    th.ToHolderName,
+			ToHolderEmail:   th.ToHolderEmail,
+			TransferredAt:   th.TransferredAt,
+			TransferReason:  th.TransferReason,
+		}
+	}
+
 	response := map[string]interface{}{
-		"message":        "Transfer history not yet implemented",
-		"ticket_number":  ticket.TicketNumber,
-		"current_holder": ticket.HolderName,
-		"current_email":  ticket.HolderEmail,
-		"transfers":      []interface{}{}, // Would contain transfer history
+		"ticket_number":    ticket.TicketNumber,
+		"current_holder":   ticket.HolderName,
+		"current_email":    ticket.HolderEmail,
+		"transfer_count":   len(transfers),
+		"transfer_history": transfers,
 	}
 
 	json.NewEncoder(w).Encode(response)

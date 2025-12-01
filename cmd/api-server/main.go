@@ -34,7 +34,7 @@ import (
 func main() {
 	DB := database.Init()
 
-	err := DB.AutoMigrate(&models.User{}, &models.EmailVerification{}, &models.WaitlistEntry{})
+	err := DB.AutoMigrate(&models.User{}, &models.EmailVerification{}, &models.WaitlistEntry{}, &models.TicketTransferHistory{})
 	if err != nil {
 		fmt.Printf("Migration failed: %v\n", err)
 	} else {

@@ -103,6 +103,7 @@ type CheckInRequest struct {
 type TransferTicketRequest struct {
 	NewHolderName  string `json:"new_holder_name"`
 	NewHolderEmail string `json:"new_holder_email"`
+	TransferReason string `json:"transfer_reason,omitempty"` // Optional reason for transfer
 }
 
 // ValidateTicketRequest represents the validation request
