@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -338,7 +339,56 @@ func (h *InventoryHandler) NotifyNextInWaitlist(w http.ResponseWriter, r *http.R
 			continue
 		}
 
-		// TODO: Send actual notification email
+		// Load event details for email
+		var event models.Event
+		if err := h.db.First(&event, entry.EventID).Error; err != nil {
+			continue
+		}
+
+		// Load ticket class details if applicable
+		var ticketClassName string
+		var price float64
+		if entry.TicketClassID != nil {
+			var ticketClass models.TicketClass
+			if err := h.db.First(&ticketClass, *entry.TicketClassID).Error; err == nil {
+				ticketClassName = ticketClass.Name
+				price = float64(ticketClass.Price) / 100.0
+			}
+		}
+
+		// Get venue name from event's venues
+		venueName := ""
+		if len(event.Venue) > 0 {
+			// Load venues if not already loaded
+			if event.Venue[0].VenueName == "" {
+				h.db.Model(&event).Association("Venue").Find(&event.Venue)
+			}
+			if len(event.Venue) > 0 {
+				venueName = event.Venue[0].VenueName
+			}
+		}
+
+		// Send notification email
+		if h.notificationService != nil {
+			emailData := notifications.WaitlistNotificationData{
+				Name:            entry.Name,
+				EventName:       event.Title,
+				EventDate:       event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"),
+				VenueName:       venueName,
+				TicketClassName: ticketClassName,
+				Quantity:        entry.Quantity,
+				Price:           price,
+				Currency:        "KES",
+				ExpiresAt:       expires.Format("Monday, January 2, 2006 at 3:04 PM"),
+				PurchaseURL:     fmt.Sprintf("%s/events/%d", h.baseURL, event.ID),
+			}
+
+			if err := h.notificationService.SendWaitlistNotificationEmail(entry.Email, emailData); err != nil {
+				// Log error but don't fail the operation
+				fmt.Printf("Warning: Failed to send waitlist notification to %s: %v\n", entry.Email, err)
+			}
+		}
+
 		notifiedCount++
 		notifiedIDs = append(notifiedIDs, entry.ID)
 	}

@@ -266,16 +266,19 @@ func (s *EmailService) SendWithTemplate(to []string, subject string, templateNam
 // getTemplate retrieves an email template
 func (s *EmailService) getTemplate(name string) (*template.Template, error) {
 	templates := map[string]string{
-		"welcome":              welcomeTemplate,
-		"verification":         verificationTemplate,
-		"password_reset":       passwordResetTemplate,
-		"order_confirmation":   orderConfirmationTemplate,
-		"ticket_generated":     ticketGeneratedTemplate,
-		"event_reminder":       eventReminderTemplate,
-		"payment_confirmation": paymentConfirmationTemplate,
-		"refund_processed":     refundProcessedTemplate,
-		"organizer_approval":   organizerApprovalTemplate,
-		"organizer_rejection":  organizerRejectionTemplate,
+		"welcome":                            welcomeTemplate,
+		"verification":                       verificationTemplate,
+		"password_reset":                     passwordResetTemplate,
+		"order_confirmation":                 orderConfirmationTemplate,
+		"ticket_generated":                   ticketGeneratedTemplate,
+		"event_reminder":                     eventReminderTemplate,
+		"payment_confirmation":               paymentConfirmationTemplate,
+		"refund_processed":                   refundProcessedTemplate,
+		"organizer_approval":                 organizerApprovalTemplate,
+		"organizer_rejection":                organizerRejectionTemplate,
+		"waitlist_notification":              waitlistNotificationTemplate,
+		"organizer_application_confirmation": organizerApplicationConfirmationTemplate,
+		"admin_organizer_notification":       adminOrganizerNotificationTemplate,
 	}
 
 	tmplStr, exists := templates[name]

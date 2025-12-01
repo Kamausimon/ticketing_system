@@ -8,13 +8,16 @@ import (
 
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 
 	"gorm.io/gorm"
 )
 
 type InventoryHandler struct {
-	db       *gorm.DB
-	_metrics *analytics.PrometheusMetrics // Reserved for future instrumentation
+	db                  *gorm.DB
+	_metrics            *analytics.PrometheusMetrics // Reserved for future instrumentation
+	notificationService *notifications.NotificationService
+	baseURL             string
 }
 
 func NewInventoryHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *InventoryHandler {
@@ -22,6 +25,16 @@ func NewInventoryHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *Inv
 		db:       db,
 		_metrics: metrics,
 	}
+}
+
+// SetNotificationService sets the notification service for the handler
+func (h *InventoryHandler) SetNotificationService(ns *notifications.NotificationService) {
+	h.notificationService = ns
+}
+
+// SetBaseURL sets the base URL for generating links
+func (h *InventoryHandler) SetBaseURL(url string) {
+	h.baseURL = url
 }
 
 // Request types

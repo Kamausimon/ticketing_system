@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"ticketing_system/internal/models"
 	"time"
@@ -77,7 +78,11 @@ func (h *PaymentHandler) InitiatePayment(w http.ResponseWriter, r *http.Request)
 		}
 
 	case "card":
-		redirectURL := "https://yourdomain.com/payment/callback" // TODO: Make configurable
+		// Get redirect URL from environment or use callback URL
+		redirectURL := os.Getenv("PAYMENT_CALLBACK_URL")
+		if redirectURL == "" {
+			redirectURL = "https://yourdomain.com/payment/callback"
+		}
 		if req.CallbackURL != nil {
 			redirectURL = *req.CallbackURL
 		}

@@ -116,9 +116,38 @@ func (h *RefundHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 
 	if req.Approved {
 		refund.Status = models.RefundApproved
-		// TODO: Calculate organizer impact (deduct platform fees, etc.)
-		// For now, organizer impact = refund amount
-		refund.OrganizerImpact = refund.RefundAmount
+
+		// Calculate organizer impact by deducting platform fees
+		// Organizer only loses the net amount they would have received
+		// Platform fees are not returned to organizer since they were platform's revenue
+		var platformFeeAmount models.Money
+
+		// Query platform fees from payment records for this order
+		if err := h.db.Model(&models.PaymentRecord{}).
+			Where("order_id = ? AND type = ?", refund.OrderID, models.RecordPlatformFee).
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&platformFeeAmount).Error; err != nil {
+			// If can't determine platform fees, use a conservative estimate (5% default)
+			platformFeeAmount = models.Money(float64(refund.RefundAmount) * 0.05)
+		}
+
+		// Calculate proportional platform fee for this refund
+		// If refunding part of the order, calculate proportional fee
+		proportionalPlatformFee := models.Money(0)
+		if refund.OriginalAmount > 0 {
+			// Proportional fee = (refund amount / original amount) * total platform fees
+			proportion := float64(refund.RefundAmount) / float64(refund.OriginalAmount)
+			proportionalPlatformFee = models.Money(float64(platformFeeAmount) * proportion)
+		}
+
+		// Organizer impact = refund amount - platform fees
+		// This means organizer only loses what they would have received (net amount)
+		refund.OrganizerImpact = refund.RefundAmount - proportionalPlatformFee
+
+		// Ensure organizer impact is not negative
+		if refund.OrganizerImpact < 0 {
+			refund.OrganizerImpact = 0
+		}
 	} else {
 		refund.Status = models.RefundRejected
 		refund.RejectionReason = req.RejectionReason

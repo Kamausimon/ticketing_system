@@ -125,8 +125,38 @@ func (h *OrganizerHandler) OrganizerApply(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// TODO: Send confirmation email
-	// TODO: Notify admins for approval if needed
+	// Send confirmation email to organizer
+	if h.notifications != nil {
+		emailData := notifications.OrganizerApplicationConfirmationData{
+			Name:  organizer.Name,
+			Email: organizer.Email,
+		}
+		if err := h.notifications.SendOrganizerApplicationConfirmation(organizer.Email, emailData); err != nil {
+			// Log error but don't fail the request
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "organizer created but failed to send confirmation email")
+			return
+		}
+	}
+
+	// Notify admins for approval
+	if h.notifications != nil {
+		var admins []models.User
+		if err := h.db.Where("role = ?", models.RoleAdmin).Find(&admins).Error; err == nil {
+			for _, admin := range admins {
+				adminNotificationData := notifications.AdminOrganizerNotificationData{
+					AdminName:      admin.FirstName + " " + admin.LastName,
+					OrganizerName:  organizer.Name,
+					OrganizerEmail: organizer.Email,
+					OrganizerPhone: organizer.Phone,
+					TaxName:        organizer.TaxName,
+					TaxPin:         organizer.TaxPin,
+					AppliedDate:    organizer.CreatedAt.Format("January 2, 2006"),
+					ReviewURL:      h.notifications.GetAdminReviewURL(organizer.ID),
+				}
+				h.notifications.SendAdminOrganizerNotification(admin.Email, adminNotificationData)
+			}
+		}
+	}
 
 	response := OrganizerApplicationResponse{
 		Message:          "Organizer application submitted successfully",

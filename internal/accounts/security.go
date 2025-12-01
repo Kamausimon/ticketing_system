@@ -248,13 +248,38 @@ func (h *AccountHandler) LockAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get the account to lock
+	var account models.Account
+	if err := h.db.First(&account, req.AccountID).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "account not found")
+		return
+	}
+
+	// Check if account is already locked
+	if !account.IsActive {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "account is already locked")
+		return
+	}
+
+	// Lock the account by setting IsActive to false
+	if err := h.db.Model(&account).Updates(map[string]interface{}{
+		"is_active":  false,
+		"updated_at": time.Now(),
+	}).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to lock account")
+		return
+	}
+
 	// Log security event
 	logSecurityEvent(h.db, req.AccountID, "account_locked", getClientIP(r), r.UserAgent())
 
-	// TODO: Implement actual account locking logic in Account model
+	// Log account activity
+	h.logAccountActivity(req.AccountID, "account_locked", fmt.Sprintf("Account locked by admin (User ID: %d)", userID), getClientIP(r))
+
 	response := map[string]interface{}{
-		"message": "Account lock functionality not implemented yet",
-		"note":    "Security event has been logged",
+		"success":    true,
+		"message":    "Account locked successfully",
+		"account_id": req.AccountID,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -296,13 +321,38 @@ func (h *AccountHandler) UnlockAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get the account to unlock
+	var account models.Account
+	if err := h.db.First(&account, req.AccountID).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "account not found")
+		return
+	}
+
+	// Check if account is already unlocked
+	if account.IsActive {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "account is already active")
+		return
+	}
+
+	// Unlock the account by setting IsActive to true
+	if err := h.db.Model(&account).Updates(map[string]interface{}{
+		"is_active":  true,
+		"updated_at": time.Now(),
+	}).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to unlock account")
+		return
+	}
+
 	// Log security event
 	logSecurityEvent(h.db, req.AccountID, "account_unlocked", getClientIP(r), r.UserAgent())
 
-	// TODO: Implement actual account unlocking logic in Account model
+	// Log account activity
+	h.logAccountActivity(req.AccountID, "account_unlocked", fmt.Sprintf("Account unlocked by admin (User ID: %d)", userID), getClientIP(r))
+
 	response := map[string]interface{}{
-		"message": "Account unlock functionality not implemented yet",
-		"note":    "Security event has been logged",
+		"success":    true,
+		"message":    "Account unlocked successfully",
+		"account_id": req.AccountID,
 	}
 
 	json.NewEncoder(w).Encode(response)

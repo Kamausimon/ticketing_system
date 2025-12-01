@@ -83,7 +83,13 @@ func (h *OrganizerHandler) GetOrganizerDashboard(w http.ResponseWriter, r *http.
 		Select("COALESCE(SUM(total_amount), 0)").
 		Row().Scan(&totalRevenue)
 
-	pendingPayouts := 0.0 // TODO: Calculate from settlement records
+	// Calculate pending payouts from settlement records
+	var pendingPayoutsAmount int64
+	h.db.Model(&models.SettlementItem{}).
+		Where("organizer_id = ? AND status IN ?", organizer.ID, []string{"pending", "awaiting_event", "holding_period", "ready_to_process", "processing"}).
+		Select("COALESCE(SUM(net_amount), 0)").
+		Row().Scan(&pendingPayoutsAmount)
+	pendingPayouts := float64(pendingPayoutsAmount) / 100.0
 
 	// Get recent events (last 5)
 	var events []models.Event

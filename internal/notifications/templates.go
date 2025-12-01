@@ -441,6 +441,205 @@ const organizerApprovalTemplate = `
 </html>
 `
 
+const waitlistNotificationTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #10B981; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }
+        .highlight { background: #FEF3C7; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #F59E0B; }
+        .button { display: inline-block; padding: 12px 30px; background: #10B981; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .details { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+        .urgent { color: #DC2626; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 Tickets Are Now Available!</h1>
+        </div>
+        <div class="content">
+            <h2>Hi {{.Name}}!</h2>
+            <p>Great news! The tickets you were waiting for are now available for purchase.</p>
+            
+            <div class="highlight">
+                <p class="urgent">⏰ Act fast! You have 24 hours to complete your purchase before this opportunity expires.</p>
+            </div>
+            
+            <div class="details">
+                <h3>Event Details:</h3>
+                <p><strong>Event:</strong> {{.EventName}}</p>
+                <p><strong>Date:</strong> {{.EventDate}}</p>
+                {{if .VenueName}}<p><strong>Venue:</strong> {{.VenueName}}</p>{{end}}
+                {{if .TicketClassName}}<p><strong>Ticket Type:</strong> {{.TicketClassName}}</p>{{end}}
+                <p><strong>Quantity Available:</strong> {{.Quantity}}</p>
+                {{if .Price}}<p><strong>Price:</strong> {{.Currency}} {{.Price}}</p>{{end}}
+            </div>
+            
+            <p>Your purchase link expires at: <strong>{{.ExpiresAt}}</strong></p>
+            
+            <center>
+                <a href="{{.PurchaseURL}}" class="button">Purchase Tickets Now</a>
+            </center>
+            
+            <p><small>If you no longer wish to purchase these tickets, you can ignore this email. Your spot will be offered to the next person on the waitlist after 24 hours.</small></p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Ticketing System. All rights reserved.</p>
+            <p>You received this email because you joined the waitlist for {{.EventName}}</p>
+        </div>
+    </div>
+</body>
+</html>
+`
+
+const organizerApplicationConfirmationTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #3B82F6; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }
+        .info-box { background: #DBEAFE; border-left: 4px solid #3B82F6; padding: 15px; margin: 20px 0; }
+        .steps { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+        .step { margin: 15px 0; padding-left: 25px; position: relative; }
+        .step::before { content: "✓"; position: absolute; left: 0; color: #10B981; font-weight: bold; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 Application Received!</h1>
+        </div>
+        <div class="content">
+            <h2>Hi {{.Name}}!</h2>
+            
+            <p>Thank you for applying to become an event organizer on our platform. We've received your application and it's currently under review.</p>
+            
+            <div class="info-box">
+                <strong>📧 Application Details</strong>
+                <p><strong>Business Name:</strong> {{.Name}}</p>
+                <p><strong>Email:</strong> {{.Email}}</p>
+            </div>
+            
+            <div class="steps">
+                <h3>What Happens Next?</h3>
+                <div class="step">Your application has been submitted successfully</div>
+                <div class="step">Our team will review your information (typically within 1-3 business days)</div>
+                <div class="step">You'll receive an email notification once your application is approved</div>
+                <div class="step">After approval, you can start creating and managing events</div>
+            </div>
+            
+            <p><strong>While you wait, here's what we'll be reviewing:</strong></p>
+            <ul>
+                <li>Business information and contact details</li>
+                <li>Tax identification documents</li>
+                <li>Banking information for payouts</li>
+                <li>Compliance with our platform policies</li>
+            </ul>
+            
+            <p>If we need any additional information, we'll reach out to you at {{.Email}}.</p>
+            
+            <p><strong>Questions?</strong> Feel free to reply to this email or contact our support team.</p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Ticketing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`
+
+const adminOrganizerNotificationTemplate = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #F59E0B; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 5px 5px; }
+        .urgent { background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 15px; margin: 20px 0; }
+        .details { background: white; padding: 20px; border-radius: 5px; margin: 15px 0; }
+        .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid #E5E7EB; }
+        .detail-label { font-weight: bold; width: 150px; }
+        .button { display: inline-block; padding: 12px 30px; background: #3B82F6; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔔 New Organizer Application</h1>
+        </div>
+        <div class="content">
+            <h2>Hi {{.AdminName}}!</h2>
+            
+            <div class="urgent">
+                <strong>⚠️ Action Required:</strong> A new organizer application requires your review and approval.
+            </div>
+            
+            <p>A new event organizer has applied to join the platform. Please review their application details below.</p>
+            
+            <div class="details">
+                <h3>Applicant Information</h3>
+                <div class="detail-row">
+                    <div class="detail-label">Business Name:</div>
+                    <div>{{.OrganizerName}}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Email:</div>
+                    <div>{{.OrganizerEmail}}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Phone:</div>
+                    <div>{{.OrganizerPhone}}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Tax Name:</div>
+                    <div>{{.TaxName}}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Tax PIN:</div>
+                    <div>{{.TaxPin}}</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Applied On:</div>
+                    <div>{{.AppliedDate}}</div>
+                </div>
+            </div>
+            
+            <p><strong>Review Checklist:</strong></p>
+            <ul>
+                <li>Verify business name and contact information</li>
+                <li>Validate tax identification details</li>
+                <li>Check for any duplicate or fraudulent applications</li>
+                <li>Review compliance with platform policies</li>
+                <li>Confirm banking information is complete</li>
+            </ul>
+            
+            <center>
+                <a href="{{.ReviewURL}}" class="button">Review Application Now</a>
+            </center>
+            
+            <p><small>Please review this application within 3 business days to maintain our service standards.</small></p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2024 Ticketing System. All rights reserved.</p>
+            <p>Admin Notification - Organizer Management System</p>
+        </div>
+    </div>
+</body>
+</html>
+`
+
 const organizerRejectionTemplate = `
 <!DOCTYPE html>
 <html>

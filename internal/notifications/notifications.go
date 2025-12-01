@@ -403,3 +403,94 @@ func (s *NotificationService) SendOrganizerRejectionEmail(email string, data Org
 	log.Printf("✅ Organizer rejection email sent to %s", email)
 	return nil
 }
+
+// WaitlistNotificationData holds data for waitlist notification emails
+type WaitlistNotificationData struct {
+	Name            string
+	EventName       string
+	EventDate       string
+	VenueName       string
+	TicketClassName string
+	Quantity        int
+	Price           float64
+	Currency        string
+	ExpiresAt       string
+	PurchaseURL     string
+}
+
+// SendWaitlistNotificationEmail sends a notification when tickets become available
+func (s *NotificationService) SendWaitlistNotificationEmail(email string, data WaitlistNotificationData) error {
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		fmt.Sprintf("Tickets Available: %s", data.EventName),
+		"waitlist_notification",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send waitlist notification to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Waitlist notification sent to %s for %s", email, data.EventName)
+	return nil
+}
+
+// OrganizerApplicationConfirmationData holds data for organizer application confirmation emails
+type OrganizerApplicationConfirmationData struct {
+	Name  string
+	Email string
+}
+
+// SendOrganizerApplicationConfirmation sends a confirmation email to organizer after application
+func (s *NotificationService) SendOrganizerApplicationConfirmation(email string, data OrganizerApplicationConfirmationData) error {
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		"Organizer Application Received",
+		"organizer_application_confirmation",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send organizer application confirmation to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Organizer application confirmation sent to %s", email)
+	return nil
+}
+
+// AdminOrganizerNotificationData holds data for admin notification about new organizer
+type AdminOrganizerNotificationData struct {
+	AdminName      string
+	OrganizerName  string
+	OrganizerEmail string
+	OrganizerPhone string
+	TaxName        string
+	TaxPin         string
+	AppliedDate    string
+	ReviewURL      string
+}
+
+// SendAdminOrganizerNotification sends notification to admins about new organizer application
+func (s *NotificationService) SendAdminOrganizerNotification(email string, data AdminOrganizerNotificationData) error {
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		"New Organizer Application - Action Required",
+		"admin_organizer_notification",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send admin organizer notification to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Admin organizer notification sent to %s", email)
+	return nil
+}
+
+// GetAdminReviewURL returns the URL for admin to review organizer application
+func (s *NotificationService) GetAdminReviewURL(organizerID uint) string {
+	return fmt.Sprintf("%s/admin/organizers/pending/%d", s.config.App.FrontendURL, organizerID)
+}

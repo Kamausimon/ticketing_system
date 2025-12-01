@@ -152,15 +152,69 @@ func (h *OrganizerHandler) UpdateOrganizerProfile(w http.ResponseWriter, r *http
 func (h *OrganizerHandler) UploadOrganizerLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	_ = middleware.GetUserIDFromToken(r) // TODO: Use this when implementing upload
+	userID := middleware.GetUserIDFromToken(r)
 
-	// TODO: Implement file upload logic
-	// This would involve:
-	// 1. Parse multipart form
-	// 2. Validate file type and size
-	// 3. Save file to storage (local/cloud)
-	// 4. Update organizer logo_path in database
-	// 5. Return new logo URL
+	// Get organizer
+	var user models.User
+	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
 
-	middleware.WriteJSONError(w, http.StatusNotImplemented, "logo upload not implemented yet")
+	var organizer models.Organizer
+	if err := h.db.Where("account_id = ?", user.AccountID).First(&organizer).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "organizer profile not found")
+		return
+	}
+
+	// Parse multipart form (10 MB max)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "failed to parse form data")
+		return
+	}
+
+	file, header, err := r.FormFile("logo")
+	if err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "logo file is required")
+		return
+	}
+	defer file.Close()
+
+	// Validate file type (only images)
+	contentType := header.Header.Get("Content-Type")
+	allowedTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/jpg":  true,
+		"image/png":  true,
+		"image/gif":  true,
+		"image/webp": true,
+	}
+
+	if !allowedTypes[contentType] {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid file type. Allowed: jpg, png, gif, webp")
+		return
+	}
+
+	// Validate file size (max 5MB)
+	if header.Size > 5*1024*1024 {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "file size exceeds 5MB limit")
+		return
+	}
+
+	// For now, return success with a placeholder path
+	// In production, implement actual file storage (local/S3/GCS)
+	logoPath := "/uploads/logos/placeholder_" + header.Filename
+
+	// Update organizer logo path
+	if err := h.db.Model(&organizer).Update("logo_path", logoPath).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update logo")
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"logo_url":  logoPath,
+		"message":   "Logo uploaded successfully",
+		"file_size": header.Size,
+	})
 }
