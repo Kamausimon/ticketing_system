@@ -162,6 +162,7 @@ func (l *ActivityLogger) logActivity(accountID uint, userID *uint, action, categ
 		IPAddress:   ipAddress,
 		UserAgent:   userAgent,
 		Success:     success,
+		Metadata:    nil, // Explicitly set to nil for NULL in database
 		Severity:    severity,
 		Timestamp:   time.Now(),
 	}

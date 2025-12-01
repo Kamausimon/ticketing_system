@@ -74,8 +74,12 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Normalize email and username for checking
+	normalizedEmail := strings.ToLower(strings.TrimSpace(req.Email))
+	normalizedUsername := strings.ToLower(strings.TrimSpace(req.Username))
+
 	var existingUser models.User
-	if err := h.db.Where("email = ? OR username = ?", req.Email, req.Username).First(&existingUser).Error; err != gorm.ErrRecordNotFound {
+	if err := h.db.Where("email = ? OR username = ?", normalizedEmail, normalizedUsername).First(&existingUser).Error; err == nil {
 		middleware.WriteJSONError(w, http.StatusConflict, "user already exists")
 		return
 	}
@@ -90,7 +94,7 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	account := models.Account{
 		FirstName: strings.TrimSpace(req.FirstName),
 		LastName:  strings.TrimSpace(req.LastName),
-		Email:     strings.ToLower(strings.TrimSpace(req.Email)),
+		Email:     normalizedEmail,
 		IsActive:  true,
 		IsBanned:  false,
 	}
@@ -104,9 +108,9 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		AccountID:     account.ID,
 		FirstName:     strings.TrimSpace(req.FirstName),
 		LastName:      strings.TrimSpace(req.LastName),
-		Username:      strings.ToLower(strings.TrimSpace(req.Username)),
+		Username:      normalizedUsername,
 		Phone:         req.Phone,
-		Email:         strings.ToLower(strings.TrimSpace(req.Email)),
+		Email:         normalizedEmail,
 		Password:      string(hashedPassword),
 		Role:          models.RoleCustomer,
 		IsActive:      true,
