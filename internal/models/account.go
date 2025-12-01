@@ -10,7 +10,7 @@ type Account struct {
 	gorm.Model
 	FirstName            string
 	LastName             string
-	Email                string
+	Email                string `gorm:"uniqueIndex;not null"`
 	TimezoneID           *int
 	DateFormatID         *int
 	DateTimeFormatID     *int
@@ -29,6 +29,6 @@ type Account struct {
 	StripeSecretKey      *string
 	StripePublishableKey *string
 	StripeDataRaw        *string
-	PaymentGatewayID     uint
-	PaymentGateway       PaymentGateway
+	PaymentGatewayID     *uint
+	PaymentGateway       *PaymentGateway `gorm:"foreignKey:PaymentGatewayID"`
 }

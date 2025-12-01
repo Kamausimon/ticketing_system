@@ -19,7 +19,7 @@ type AccountActivity struct {
 	IPAddress   string    `gorm:"type:varchar(45)"` // IPv4 or IPv6
 	UserAgent   string    `gorm:"type:text"`
 	Success     bool      `gorm:"default:true;index"`
-	Metadata    string    `gorm:"type:jsonb"`                      // Additional context as JSON
+	Metadata    *string   `gorm:"type:jsonb"`                      // Additional context as JSON
 	Severity    string    `gorm:"type:varchar(20);default:'info'"` // info, warning, error, critical
 	Resource    string    `gorm:"type:varchar(100)"`               // What was affected (event_id, order_id, etc.)
 	ResourceID  *uint     // ID of the affected resource

@@ -86,7 +86,22 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create account first
+	account := models.Account{
+		FirstName: strings.TrimSpace(req.FirstName),
+		LastName:  strings.TrimSpace(req.LastName),
+		Email:     strings.ToLower(strings.TrimSpace(req.Email)),
+		IsActive:  true,
+		IsBanned:  false,
+	}
+
+	if err := h.db.Create(&account).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create account")
+		return
+	}
+
 	user := models.User{
+		AccountID:     account.ID,
 		FirstName:     strings.TrimSpace(req.FirstName),
 		LastName:      strings.TrimSpace(req.LastName),
 		Username:      strings.ToLower(strings.TrimSpace(req.Username)),

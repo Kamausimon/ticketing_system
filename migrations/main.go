@@ -128,6 +128,7 @@ func runMigrations(db *gorm.DB) error {
 		&models.RecoveryCode{},
 		&models.TwoFactorAttempt{},
 		&models.TwoFactorSession{},
+		&models.EmailVerification{},
 	)
 	if err != nil {
 		return err

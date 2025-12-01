@@ -20,11 +20,11 @@ const (
 // EmailVerification stores email verification tokens
 type EmailVerification struct {
 	gorm.Model
-	UserID      uint
+	UserID      uint                    `gorm:"index:idx_email_verification_user"`
 	User        User                    `gorm:"foreignKey:UserID"`
-	Token       string                  `gorm:"unique;index"` // Verification token
-	Email       string                  `gorm:"index"`        // Email to be verified
-	Status      EmailVerificationStatus `gorm:"default:'pending';index"`
+	Token       string                  `gorm:"uniqueIndex"`                        // Verification token
+	Email       string                  `gorm:"index:idx_email_verification_email"` // Email to be verified
+	Status      EmailVerificationStatus `gorm:"default:'pending';index:idx_email_verification_status"`
 	VerifiedAt  *time.Time              // When email was verified
 	ExpiresAt   time.Time               `gorm:"index"` // Token expiration time
 	LastSentAt  time.Time               // Last time email was sent

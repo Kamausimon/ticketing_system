@@ -58,7 +58,7 @@ func (h *AccountHandler) SetupStripeIntegration(w http.ResponseWriter, r *http.R
 	account.StripePublishableKey = &req.StripePublishableKey
 
 	// Set up default payment gateway if not exists
-	if account.PaymentGatewayID == 0 {
+	if account.PaymentGatewayID == nil || *account.PaymentGatewayID == 0 {
 		// Find or create Stripe payment gateway
 		var gateway models.PaymentGateway
 		if err := h.db.Where("name = ?", "Stripe").First(&gateway).Error; err != nil {
@@ -73,7 +73,7 @@ func (h *AccountHandler) SetupStripeIntegration(w http.ResponseWriter, r *http.R
 			h.db.Create(&gateway)
 		}
 
-		account.PaymentGatewayID = gateway.ID
+		account.PaymentGatewayID = &gateway.ID
 	}
 
 	// Save account
@@ -184,7 +184,7 @@ func (h *AccountHandler) GetPaymentGatewaySettings(w http.ResponseWriter, r *htt
 		"setup_date":        nil,
 	}
 
-	if account.PaymentGateway.ID > 0 {
+	if account.PaymentGateway != nil && account.PaymentGateway.ID > 0 {
 		settings["gateway_name"] = account.PaymentGateway.Name
 		settings["gateway_active"] = true
 		settings["can_refund"] = account.PaymentGateway.CanRefund
@@ -249,8 +249,8 @@ func (h *AccountHandler) GetPaymentGatewayInfo(w http.ResponseWriter, r *http.Re
 
 	// Build payment gateway response
 	paymentGateway := PaymentGatewayResponse{
-		ID:                   account.PaymentGateway.ID,
-		Name:                 account.PaymentGateway.Name,
+		ID:                   getGatewayID(account.PaymentGateway),
+		Name:                 getGatewayName(account.PaymentGateway),
 		IsActive:             true, // Default since field doesn't exist
 		HasStripeConnect:     account.StripeAccessToken != nil,
 		StripeAccountStatus:  getStripeAccountStatus(&account),
@@ -401,4 +401,18 @@ func canReceivePayments(account *models.Account) bool {
 func requiresVerification(account *models.Account) bool {
 	// In a real implementation, this would check Stripe account verification requirements
 	return account.StripeAccessToken != nil && account.StripeSecretKey == nil
+}
+
+func getGatewayID(gateway *models.PaymentGateway) uint {
+	if gateway == nil {
+		return 0
+	}
+	return gateway.ID
+}
+
+func getGatewayName(gateway *models.PaymentGateway) string {
+	if gateway == nil {
+		return ""
+	}
+	return gateway.Name
 }

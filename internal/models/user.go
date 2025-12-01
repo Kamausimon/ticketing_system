@@ -26,13 +26,13 @@ func (P Role) Value() (driver.Value, error) {
 
 type User struct {
 	gorm.Model
-	AccountID        uint    `gorm:"not null;index"`
+	AccountID        uint    `gorm:"not null;index:idx_user_account"`
 	Account          Account `gorm:"foreignKey:AccountID"`
 	FirstName        string  `gorm:"not null"`
 	LastName         string  `gorm:"not null"`
-	Username         string  `gorm:"unique;not null"`
-	Phone            string  `gorm:"unique;not null"`
-	Email            string  `gorm:"unique;not null"`
+	Username         string  `gorm:"uniqueIndex;not null"`
+	Phone            string  `gorm:"uniqueIndex;not null"`
+	Email            string  `gorm:"uniqueIndex;not null"`
 	Password         string  `gorm:"not null"`
 	ConfirmationCode string
 	Isconfirmed      bool `gorm:"default:false"`
