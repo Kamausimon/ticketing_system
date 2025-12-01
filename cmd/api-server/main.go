@@ -553,6 +553,9 @@ func main() {
 
 	fmt.Println("\n🚀 Server starting on port 8080")
 	fmt.Println("📊 Prometheus metrics available at http://localhost:8080/metrics")
-	server.ListenAndServe()
 
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		fmt.Printf("❌ Server failed to start: %v\n", err)
+		os.Exit(1)
+	}
 }

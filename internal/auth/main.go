@@ -78,8 +78,16 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	normalizedEmail := strings.ToLower(strings.TrimSpace(req.Email))
 	normalizedUsername := strings.ToLower(strings.TrimSpace(req.Username))
 
-	var existingUser models.User
-	if err := h.db.Where("email = ? OR username = ?", normalizedEmail, normalizedUsername).First(&existingUser).Error; err == nil {
+	// Check using Count instead of First to avoid locking issues
+	var count int64
+	err := h.db.Model(&models.User{}).Where("LOWER(email) = ? OR LOWER(username) = ?", normalizedEmail, normalizedUsername).Count(&count).Error
+
+	if err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "database error checking for existing user")
+		return
+	}
+
+	if count > 0 {
 		middleware.WriteJSONError(w, http.StatusConflict, "user already exists")
 		return
 	}
@@ -103,7 +111,6 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create account")
 		return
 	}
-
 	user := models.User{
 		AccountID:     account.ID,
 		FirstName:     strings.TrimSpace(req.FirstName),
