@@ -5,6 +5,8 @@ Successfully implemented two key features:
 1. **PDF Export for Attendee Lists** - Full PDF generation for event attendees
 2. **Ticket Transfer History Tracking** - Complete database-backed transfer history with audit logging
 
+> Note: For recent authentication model adjustments and a login root-cause analysis, see [AUTH_CHANGELOG.md](AUTH_CHANGELOG.md)
+
 ---
 
 ## 1. PDF Export for Attendees ✅

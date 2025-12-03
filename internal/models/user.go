@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql/driver"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -16,8 +17,16 @@ const (
 )
 
 func (P *Role) Scan(value interface{}) error {
-	*P = Role(value.([]byte))
-	return nil
+	switch v := value.(type) {
+	case []byte:
+		*P = Role(string(v))
+		return nil
+	case string:
+		*P = Role(v)
+		return nil
+	default:
+		return fmt.Errorf("unsupported type for Role.Scan: %T", value)
+	}
 }
 
 func (P Role) Value() (driver.Value, error) {

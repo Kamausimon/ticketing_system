@@ -62,19 +62,8 @@ func (h *TicketHandler) GenerateTickets(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Start transaction
-	tx := h.db.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// Commit transaction
-	if err := tx.Commit().Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to generate tickets")
-		return
-	}
+	// Note: Tickets are generated in the payment webhook transaction (webhooks.go)
+	// This endpoint just retrieves existing tickets
 
 	// Track metrics for ticket generation
 	if h.metrics != nil {
@@ -90,7 +79,7 @@ func (h *TicketHandler) GenerateTickets(w http.ResponseWriter, r *http.Request) 
 	var tickets []models.Ticket
 	h.db.Preload("OrderItem.TicketClass.Event").
 		Where("order_item_id IN (?)",
-			tx.Model(&models.OrderItem{}).Select("id").Where("order_id = ?", order.ID)).
+			h.db.Model(&models.OrderItem{}).Select("id").Where("order_id = ?", order.ID)).
 		Find(&tickets)
 
 	// Generate PDFs for all tickets asynchronously

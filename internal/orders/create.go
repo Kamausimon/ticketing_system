@@ -52,8 +52,11 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Start transaction
 	tx := h.db.Begin()
+	committed := false
 	defer func() {
 		if r := recover(); r != nil {
+			tx.Rollback()
+		} else if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -187,6 +190,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to complete order")
 		return
 	}
+	committed = true
 
 	// Track metrics - order created
 	if h.metrics != nil {

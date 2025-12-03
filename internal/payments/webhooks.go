@@ -146,10 +146,15 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 		return false, fmt.Errorf("failed to start transaction: %w", tx.Error)
 	}
 
+	// Always ensure transaction is closed (either committed or rolled back)
+	committed := false
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
 			log.Printf("❌ Panic in handleIntasendComplete, transaction rolled back: %v", r)
+		} else if !committed {
+			tx.Rollback()
+			log.Printf("⚠️ Transaction not committed, rolling back")
 		}
 	}()
 

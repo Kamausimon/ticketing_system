@@ -2,6 +2,8 @@
 
 Complete list of all available API endpoints in the ticketing system.
 
+> Related: See Auth changes and root-cause notes in [AUTH_CHANGELOG.md](AUTH_CHANGELOG.md)
+
 ## Table of Contents
 
 - [Authentication](#authentication)

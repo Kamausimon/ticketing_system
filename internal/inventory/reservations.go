@@ -38,8 +38,11 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 
 	// Start transaction
 	tx := h.db.Begin()
+	committed := false
 	defer func() {
 		if r := recover(); r != nil {
+			tx.Rollback()
+		} else if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -125,7 +128,12 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 	var event models.Event
 	tx.First(&event, ticketClass.EventID)
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to complete reservation")
+		return
+	}
+	committed = true
+
 	response := h.convertToReservationResponse(&reservation, ticketClass.Name, event.Title)
 	writeJSON(w, http.StatusCreated, response)
 }

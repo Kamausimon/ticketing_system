@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,7 +16,6 @@ import (
 	"ticketing_system/internal/notifications"
 	"time"
 
-	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -61,6 +61,8 @@ type RegisterReponse struct {
 }
 
 func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	w.Header().Set("Content-Type", "application/json")
 
 	var req RegisterRequest
@@ -193,18 +195,48 @@ type LoginRequest struct {
 }
 
 func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
-	err := godotenv.Load(".env")
-	if err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "error loading the env variables")
+	defer r.Body.Close()
+
+	// Do not load env per request; read JWT secret directly
+	tokenSecret := os.Getenv("JWTSECRET")
+	if tokenSecret == "" {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "server configuration error: missing JWTSECRET")
 		return
 	}
-	tokenSecret := os.Getenv("JWTSECRET")
+
 	w.Header().Set("Content-Type", "application/json")
 	var req LoginRequest
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "email and password must be provided")
+		return
+	}
+
+	// normalize email
+	normalizedEmail := strings.ToLower(strings.TrimSpace(req.Email))
 
 	var user models.User
-	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+	// Use GORM with Select and timeout; default scope excludes soft-deleted rows
+	{
+		ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
+		defer cancel()
+		err := h.db.WithContext(ctx).
+			Model(&models.User{}).
+			Select("id", "account_id", "email", "password", "role", "is_active", "email_verified").
+			Where("LOWER(email) = ?", normalizedEmail).
+			First(&user).Error
+
+		if err != nil && err != gorm.ErrRecordNotFound {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "database error")
+			return
+		}
+	}
+
+	if user.ID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
@@ -222,9 +254,19 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if 2FA is enabled for this user
-	var twoFactorAuth models.TwoFactorAuth
-	has2FA := h.db.Where("user_id = ? AND enabled = ?", user.ID, true).First(&twoFactorAuth).Error == nil
+	// Check if 2FA is enabled for this user with timeout and lightweight existence check
+	has2FA := false
+	{
+		ctx, cancel := context.WithTimeout(r.Context(), 800*time.Millisecond)
+		defer cancel()
+		var count int64
+		if err := h.db.WithContext(ctx).
+			Model(&models.TwoFactorAuth{}).
+			Where("user_id = ? AND enabled = ?", user.ID, true).
+			Count(&count).Error; err == nil {
+			has2FA = count > 0
+		}
+	}
 
 	if has2FA {
 		// 2FA is enabled - return partial token and require 2FA verification

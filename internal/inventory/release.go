@@ -91,8 +91,11 @@ func (h *InventoryHandler) ConvertReservationToOrder(w http.ResponseWriter, r *h
 
 	// Start transaction
 	tx := h.db.Begin()
+	committed := false
 	defer func() {
 		if r := recover(); r != nil {
+			tx.Rollback()
+		} else if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -129,7 +132,11 @@ func (h *InventoryHandler) ConvertReservationToOrder(w http.ResponseWriter, r *h
 		return
 	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to complete reservation conversion")
+		return
+	}
+	committed = true
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":        true,

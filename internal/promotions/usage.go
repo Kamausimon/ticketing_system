@@ -77,8 +77,11 @@ func (h *PromotionHandler) RecordPromotionUsage(w http.ResponseWriter, r *http.R
 
 	// Start transaction
 	tx := h.db.Begin()
+	committed := false
 	defer func() {
 		if r := recover(); r != nil {
+			tx.Rollback()
+		} else if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -125,6 +128,7 @@ func (h *PromotionHandler) RecordPromotionUsage(w http.ResponseWriter, r *http.R
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to record promotion usage")
 		return
 	}
+	committed = true
 
 	response := map[string]interface{}{
 		"message":   "Promotion usage recorded successfully",

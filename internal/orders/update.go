@@ -151,6 +151,14 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Start transaction
 	tx := h.db.Begin()
+	committed := false
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		} else if !committed {
+			tx.Rollback()
+		}
+	}()
 
 	// Update order status
 	order.Status = models.OrderCancelled
@@ -181,7 +189,11 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tx.Commit()
+	if err := tx.Commit().Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to cancel order")
+		return
+	}
+	committed = true
 
 	// Track metrics
 	if h.metrics != nil {

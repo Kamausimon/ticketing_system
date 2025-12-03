@@ -120,8 +120,11 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 
 	// Start transaction
 	tx := h.db.Begin()
+	committed := false
 	defer func() {
 		if r := recover(); r != nil {
+			tx.Rollback()
+		} else if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -167,6 +170,7 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to complete refund request")
 		return
 	}
+	committed = true
 
 	// Send notification to customer about refund request
 	go h.sendRefundRequestedEmail(&refund, &order)
