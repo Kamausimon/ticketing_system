@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all application configuration
@@ -98,11 +100,16 @@ func Load() (*Config, error) {
 			FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
 		},
 		Security: SecurityConfig{
-			EncryptionKey: getEnv("ENCRYPTION_KEY", "dev-key-32-bytes-length-aes!!"), // Default 32-byte key for development
+			EncryptionKey: getEnv("ENCRYPTION_KEY", "dev-key-32-bytes-length-aes!!123"), // Default 32-byte key for development
 		},
+	}
+	err := godotenv.Load(".env")
+	if err != nil {
+		fmt.Print("failed to load env variables")
 	}
 
 	// Validate encryption key length
+
 	keyLen := len(config.Security.EncryptionKey)
 	if keyLen != 16 && keyLen != 24 && keyLen != 32 {
 		return nil, fmt.Errorf("ENCRYPTION_KEY must be 16, 24, or 32 bytes (current: %d bytes)", keyLen)

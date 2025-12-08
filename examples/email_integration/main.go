@@ -29,7 +29,7 @@ func main() {
 
 	// Step 3: Test the email configuration
 	fmt.Println("📝 Step 3: Testing email configuration...")
-	testEmail := "test@example.com" // Change this to your email
+	testEmail := "topstonewriters@gmail.com" // Change this to your email
 
 	err = notifService.TestEmailConfiguration(testEmail)
 	if err != nil {

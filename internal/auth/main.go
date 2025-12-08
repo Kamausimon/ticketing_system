@@ -560,15 +560,24 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// RATE LIMITING: Check if user has requested too many resets
-	// Get configuration
+	// Get configuration with fallback defaults
 	var config models.ResetConfiguration
-	h.db.First(&config) // Uses default if not found
+	if err := h.db.First(&config).Error; err != nil {
+		// No config in database, use sensible defaults
+		config = models.ResetConfiguration{
+			TokenExpiryMinutes:  15,
+			MaxAttemptsPerToken: 3,
+			MaxRequestsPerHour:  5,
+			MaxRequestsPerIP:    10,
+			CleanupAfterDays:    7,
+		}
+	}
 
 	if userExists {
 		// Count recent requests from this user
 		var recentCount int64
 		h.db.Model(&models.PasswordReset{}).
-			Where("email = ? AND is_issued_at > ? AND status IN (?)",
+			Where("email = ? AND issued_at > ? AND status IN (?)",
 				req.Email,
 				time.Now().Add(-1*time.Hour),
 				[]models.ResetStatus{models.ResetPending, models.ResetUsed}).
@@ -595,7 +604,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	// Rate limiting per IP
 	var ipCount int64
 	h.db.Model(&models.PasswordReset{}).
-		Where("ip_address = ? AND is_issued_at > ?",
+		Where("ip_address = ? AND issued_at > ?",
 			clientIP, time.Now().Add(-1*time.Hour)).
 		Count(&ipCount)
 

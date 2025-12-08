@@ -147,7 +147,7 @@ func main() {
 	router.HandleFunc("/register", authLimiter.HandlerFunc(authHandler.RegisterUser)).Methods(http.MethodPost)
 	router.HandleFunc("/login", loginLimiter.HandlerFunc(authHandler.LoginUser)).Methods(http.MethodPost)
 	router.HandleFunc("/logout", authLimiter.HandlerFunc(authHandler.LogoutUser)).Methods(http.MethodPost)
-	router.HandleFunc("/forgot-passoword", authLimiter.HandlerFunc(authHandler.ForgotPassword)).Methods(http.MethodPost)
+	router.HandleFunc("/forgot-password", authLimiter.HandlerFunc(authHandler.ForgotPassword)).Methods(http.MethodPost)
 	router.HandleFunc("/resetPassword", authLimiter.HandlerFunc(authHandler.ResetPassword)).Methods(http.MethodPost)
 
 	// Email verification routes
