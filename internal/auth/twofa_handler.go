@@ -9,6 +9,7 @@ import (
 	"ticketing_system/internal/accounts"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 	"ticketing_system/pkg/qrcode"
 
 	"golang.org/x/crypto/bcrypt"
@@ -21,6 +22,7 @@ type TwoFactorHandler struct {
 	config         *TOTPConfig
 	issuer         string // App name for TOTP
 	activityLogger *accounts.ActivityLogger
+	emailService   *notifications.EmailService
 }
 
 // NewTwoFactorHandler creates a new 2FA handler
@@ -31,6 +33,11 @@ func NewTwoFactorHandler(db *gorm.DB, issuer string) *TwoFactorHandler {
 		issuer:         issuer,
 		activityLogger: accounts.NewActivityLogger(db),
 	}
+}
+
+// SetEmailService sets the email service for sending 2FA setup emails
+func (h *TwoFactorHandler) SetEmailService(emailService *notifications.EmailService) {
+	h.emailService = emailService
 }
 
 // SetupRequest represents the request to start 2FA setup
@@ -145,6 +152,11 @@ func (h *TwoFactorHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Send QR code via email if email service is configured
+	if h.emailService != nil {
+		go h.sendSetupEmail(user.Email, user.Username, qrCodeData, secret, recoveryCodes)
+	}
+
 	response := SetupResponse{
 		Secret:      secret,
 		QRCodeData:  qrCodeData,
@@ -219,7 +231,17 @@ func (h *TwoFactorHandler) VerifySetup(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Save 2FA config
+	// Delete any existing 2FA records for this user (including soft-deleted ones)
+	// This prevents unique constraint violations when re-enabling 2FA
+	var existingAuth models.TwoFactorAuth
+	if err := tx.Unscoped().Where("user_id = ?", userID).First(&existingAuth).Error; err == nil {
+		// Delete associated recovery codes first
+		tx.Unscoped().Where("two_factor_auth_id = ?", existingAuth.ID).Delete(&models.RecoveryCode{})
+		// Delete the 2FA auth record
+		tx.Unscoped().Delete(&existingAuth)
+	}
+
+	// Save new 2FA config
 	if err := tx.Create(&twoFactorAuth).Error; err != nil {
 		tx.Rollback()
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to enable 2FA")
@@ -419,15 +441,15 @@ func (h *TwoFactorHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Delete all recovery codes
-	if err := tx.Where("two_factor_auth_id = ?", twoFactorAuth.ID).Delete(&models.RecoveryCode{}).Error; err != nil {
+	// Hard delete all recovery codes (permanently remove, not soft delete)
+	if err := tx.Unscoped().Where("two_factor_auth_id = ?", twoFactorAuth.ID).Delete(&models.RecoveryCode{}).Error; err != nil {
 		tx.Rollback()
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to remove recovery codes")
 		return
 	}
 
-	// Delete 2FA config
-	if err := tx.Delete(&twoFactorAuth).Error; err != nil {
+	// Hard delete 2FA config (permanently remove to allow re-enabling)
+	if err := tx.Unscoped().Delete(&twoFactorAuth).Error; err != nil {
 		tx.Rollback()
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to disable 2FA")
 		return
@@ -550,8 +572,8 @@ func (h *TwoFactorHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *htt
 		}
 	}()
 
-	// Delete old recovery codes
-	if err := tx.Where("two_factor_auth_id = ?", twoFactorAuth.ID).Delete(&models.RecoveryCode{}).Error; err != nil {
+	// Hard delete old recovery codes (permanently remove)
+	if err := tx.Unscoped().Where("two_factor_auth_id = ?", twoFactorAuth.ID).Delete(&models.RecoveryCode{}).Error; err != nil {
 		tx.Rollback()
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to remove old codes")
 		return
@@ -588,6 +610,11 @@ func (h *TwoFactorHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *htt
 	// Log recovery codes regeneration
 	if h.activityLogger != nil {
 		h.activityLogger.LogRecoveryCodesRegenerated(user.AccountID, &user.ID, r.RemoteAddr, r.UserAgent())
+	}
+
+	// Send new recovery codes via email if email service is configured
+	if h.emailService != nil {
+		go h.sendRecoveryCodesEmail(user.Email, user.Username, recoveryCodes)
 	}
 
 	response := map[string]interface{}{
@@ -697,4 +724,272 @@ func (h *TwoFactorHandler) SaveRecoveryCodes(twoFactorAuthID uint, codes []strin
 	}
 
 	return tx.Commit().Error
+}
+
+// sendSetupEmail sends the 2FA setup email with QR code
+func (h *TwoFactorHandler) sendSetupEmail(email, username, qrCodeBase64, secret string, recoveryCodes []string) {
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-radius: 0 0 5px 5px; }
+        .qr-code { text-align: center; margin: 20px 0; }
+        .qr-code img { max-width: 300px; border: 2px solid #4CAF50; padding: 10px; background: white; }
+        .secret-box { background: #fff; border: 2px dashed #4CAF50; padding: 15px; margin: 20px 0; text-align: center; }
+        .secret-key { font-size: 18px; font-weight: bold; color: #4CAF50; letter-spacing: 2px; }
+        .backup-codes { background: #fff; border: 2px solid #ff9800; padding: 15px; margin: 20px 0; }
+        .backup-codes h3 { color: #ff9800; margin-top: 0; }
+        .code-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-family: monospace; }
+        .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+        .step { margin: 15px 0; padding: 10px; background: white; border-left: 4px solid #4CAF50; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Two-Factor Authentication Setup</h1>
+        </div>
+        <div class="content">
+            <p>Hi %s,</p>
+            <p>You've enabled Two-Factor Authentication (2FA) for your account. Follow these steps to complete the setup:</p>
+            
+            <div class="step">
+                <strong>Step 1:</strong> Download an authenticator app if you don't have one:
+                <ul>
+                    <li>Google Authenticator (iOS/Android)</li>
+                    <li>Authy (iOS/Android/Desktop)</li>
+                    <li>Microsoft Authenticator (iOS/Android)</li>
+                </ul>
+            </div>
+            
+            <div class="step">
+                <strong>Step 2:</strong> Scan this QR code with your authenticator app:
+            </div>
+            
+            <div class="qr-code">
+                <img src="data:image/png;base64,%s" alt="2FA QR Code" />
+            </div>
+            
+            <div class="step">
+                <strong>Step 3 (Alternative):</strong> Or manually enter this secret key:
+            </div>
+            
+            <div class="secret-box">
+                <p>Secret Key:</p>
+                <div class="secret-key">%s</div>
+                <p style="font-size: 12px; color: #666; margin-top: 10px;">
+                    (Use this if you can't scan the QR code)
+                </p>
+            </div>
+            
+            <div class="warning">
+                <strong>⚠️ Important:</strong> Save your backup codes! These are the ONLY way to access your account if you lose your device.
+            </div>
+            
+            <div class="backup-codes">
+                <h3>🔑 Backup Recovery Codes</h3>
+                <p>Each code can only be used once. Store them in a safe place!</p>
+                <div class="code-list">
+                    %s
+                </div>
+            </div>
+            
+            <div class="warning">
+                <strong>Security Tips:</strong>
+                <ul>
+                    <li>Never share your secret key or recovery codes with anyone</li>
+                    <li>Store recovery codes in a secure location (password manager, safe, etc.)</li>
+                    <li>This email contains sensitive information - delete it after saving your codes</li>
+                </ul>
+            </div>
+            
+            <p style="margin-top: 30px;">If you didn't request this, please contact support immediately.</p>
+        </div>
+        <div class="footer">
+            <p>This is an automated message from Ticketing System</p>
+            <p>&copy; 2025 Ticketing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`, username, qrCodeBase64, secret, h.formatBackupCodes(recoveryCodes))
+
+	emailData := notifications.EmailData{
+		To:       []string{email},
+		Subject:  "🔐 Two-Factor Authentication Setup",
+		HTMLBody: htmlBody,
+		Body: fmt.Sprintf(`Two-Factor Authentication Setup
+
+Hi %s,
+
+You've enabled Two-Factor Authentication for your account.
+
+Secret Key: %s
+
+Backup Codes:
+%s
+
+Please scan the QR code in the HTML version of this email or manually enter the secret key in your authenticator app.
+
+Keep your backup codes in a safe place!
+
+If you didn't request this, please contact support immediately.
+`, username, secret, h.formatBackupCodesPlainText(recoveryCodes)),
+	}
+
+	if err := h.emailService.Send(emailData); err != nil {
+		// Log error but don't fail the setup process
+		fmt.Printf("Failed to send 2FA setup email to %s: %v\n", email, err)
+	}
+}
+
+// formatBackupCodes formats backup codes for HTML display
+func (h *TwoFactorHandler) formatBackupCodes(codes []string) string {
+	var html string
+	for _, code := range codes {
+		html += fmt.Sprintf("<div>%s</div>", code)
+	}
+	return html
+}
+
+// formatBackupCodesPlainText formats backup codes for plain text display
+func (h *TwoFactorHandler) formatBackupCodesPlainText(codes []string) string {
+	var text string
+	for i, code := range codes {
+		text += fmt.Sprintf("%d. %s\n", i+1, code)
+	}
+	return text
+}
+
+// sendRecoveryCodesEmail sends the regenerated recovery codes via email
+func (h *TwoFactorHandler) sendRecoveryCodesEmail(email, username string, recoveryCodes []string) {
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #ff9800; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-radius: 0 0 5px 5px; }
+        .backup-codes { background: #fff; border: 2px solid #ff9800; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .backup-codes h3 { color: #ff9800; margin-top: 0; text-align: center; }
+        .code-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; font-family: monospace; font-size: 14px; margin-top: 20px; }
+        .code-item { background: #f5f5f5; padding: 10px; border-radius: 3px; text-align: center; font-weight: bold; }
+        .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .alert { background: #f8d7da; border: 1px solid #f5c2c7; padding: 15px; margin: 20px 0; border-radius: 5px; color: #842029; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+        .timestamp { background: #e3f2fd; padding: 10px; border-left: 4px solid #2196F3; margin: 20px 0; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔑 New Recovery Codes Generated</h1>
+        </div>
+        <div class="content">
+            <p>Hi %s,</p>
+            <p>Your Two-Factor Authentication recovery codes have been regenerated as requested.</p>
+            
+            <div class="alert">
+                <strong>⚠️ Important Security Notice:</strong>
+                <ul style="margin: 10px 0;">
+                    <li>Your old recovery codes are now <strong>INVALID</strong></li>
+                    <li>Each new code below can only be used <strong>ONCE</strong></li>
+                    <li>Store these codes in a secure location immediately</li>
+                </ul>
+            </div>
+            
+            <div class="timestamp">
+                <strong>Generated:</strong> %s
+            </div>
+            
+            <div class="backup-codes">
+                <h3>🔐 Your New Recovery Codes</h3>
+                <p style="text-align: center; color: #666; margin-bottom: 20px;">
+                    Save these codes now - you won't be able to see them again!
+                </p>
+                <div class="code-list">
+                    %s
+                </div>
+            </div>
+            
+            <div class="warning">
+                <strong>What are recovery codes?</strong>
+                <p>Recovery codes allow you to access your account if you lose your authentication device. Each code can only be used once.</p>
+            </div>
+            
+            <div class="warning">
+                <strong>Security Best Practices:</strong>
+                <ul>
+                    <li>✅ Store codes in a password manager</li>
+                    <li>✅ Keep a printed copy in a safe place</li>
+                    <li>✅ Never share these codes with anyone</li>
+                    <li>✅ Regenerate codes if you suspect they've been compromised</li>
+                    <li>✅ Delete this email after saving the codes securely</li>
+                </ul>
+            </div>
+            
+            <div class="alert">
+                <strong>Didn't request this?</strong><br>
+                If you didn't regenerate your recovery codes, your account may be compromised. 
+                Please contact support immediately and change your password.
+            </div>
+        </div>
+        <div class="footer">
+            <p>This is an automated security notification from Ticketing System</p>
+            <p>&copy; 2025 Ticketing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`, username, time.Now().Format("January 2, 2006 at 3:04 PM MST"), h.formatBackupCodesWithStyle(recoveryCodes))
+
+	emailData := notifications.EmailData{
+		To:       []string{email},
+		Subject:  "🔑 New Two-Factor Authentication Recovery Codes",
+		HTMLBody: htmlBody,
+		Body: fmt.Sprintf(`New Recovery Codes Generated
+
+Hi %s,
+
+Your Two-Factor Authentication recovery codes have been regenerated.
+
+IMPORTANT: Your old recovery codes are now INVALID.
+
+New Recovery Codes (each can only be used once):
+%s
+
+Security Tips:
+- Store these codes in a secure location (password manager, safe, etc.)
+- Each code can only be used once
+- Never share these codes with anyone
+- Delete this email after saving the codes securely
+
+If you didn't request this, please contact support immediately and change your password.
+
+Generated: %s
+
+Ticketing System
+`, username, h.formatBackupCodesPlainText(recoveryCodes), time.Now().Format("January 2, 2006 at 3:04 PM MST")),
+	}
+
+	if err := h.emailService.Send(emailData); err != nil {
+		// Log error but don't fail the process
+		fmt.Printf("Failed to send recovery codes email to %s: %v\n", email, err)
+	}
+}
+
+// formatBackupCodesWithStyle formats backup codes with HTML styling
+func (h *TwoFactorHandler) formatBackupCodesWithStyle(codes []string) string {
+	var html string
+	for _, code := range codes {
+		html += fmt.Sprintf("<div class=\"code-item\">%s</div>", code)
+	}
+	return html
 }

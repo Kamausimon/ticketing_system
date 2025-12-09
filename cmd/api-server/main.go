@@ -85,6 +85,10 @@ func main() {
 
 	// Initialize 2FA handler
 	twoFactorHandler := auth.NewTwoFactorHandler(DB, "Ticketing System")
+	if notificationService != nil {
+		twoFactorHandler.SetEmailService(notificationService.GetEmailService())
+	}
+
 	var organizerHandler *organizers.OrganizerHandler
 	if notificationService != nil {
 		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService, encryptionService)
