@@ -10,11 +10,14 @@ import (
 )
 
 // BankDetailsRequest represents bank account details submission
+// These details are used for PAYOUTS ONLY - not for collecting customer payments.
+// The platform collects all customer payments through its own payment gateway,
+// then transfers funds to organizers using these bank details.
 type BankDetailsRequest struct {
 	BankAccountName   string `json:"bank_account_name"`
 	BankAccountNumber string `json:"bank_account_number"`
-	BankCode          string `json:"bank_code"`
-	BankCountry       string `json:"bank_country"`
+	BankCode          string `json:"bank_code"`    // Bank SWIFT/Sort code
+	BankCountry       string `json:"bank_country"` // ISO country code
 }
 
 // BankDetailsResponse represents the response after saving bank details
@@ -23,7 +26,9 @@ type BankDetailsResponse struct {
 	Status  string `json:"status"`
 }
 
-// UpdateBankDetails handles bank account details submission
+// UpdateBankDetails handles bank account details submission for payouts.
+// This is where organizers specify where they want to receive their earnings.
+// All customer payments are collected by the platform, not by individual organizers.
 func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -71,6 +76,9 @@ func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Check if bank details are being changed (not first time setup)
+	isUpdate := organizer.BankAccountNumber != ""
+
 	// Update bank details with encrypted values
 	updates := map[string]interface{}{
 		"bank_account_name":   req.BankAccountName,
@@ -82,6 +90,11 @@ func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Requ
 	if err := h.db.Model(&organizer).Updates(updates).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update bank details")
 		return
+	}
+
+	// Send notification email if this is an update (not first time setup)
+	if isUpdate && h.notifications != nil {
+		go h.sendBankDetailsChangeNotification(organizer, user, r)
 	}
 
 	response := BankDetailsResponse{
@@ -140,4 +153,45 @@ func (h *OrganizerHandler) GetBankDetails(w http.ResponseWriter, r *http.Request
 	}
 
 	json.NewEncoder(w).Encode(bankDetails)
+}
+
+// sendBankDetailsChangeNotification sends email notification when bank details are changed
+func (h *OrganizerHandler) sendBankDetailsChangeNotification(organizer models.Organizer, user models.User, r *http.Request) {
+	// Get all users in the same account for notification
+	var accountUsers []models.User
+	if err := h.db.Where("account_id = ?", user.AccountID).Find(&accountUsers).Error; err != nil {
+		fmt.Printf("Failed to get account users: %v\n", err)
+		return
+	}
+
+	// Send notification to all users in the account
+	for _, accountUser := range accountUsers {
+		emailData := map[string]interface{}{
+			"Name":           accountUser.FirstName + " " + accountUser.LastName,
+			"OrganizerName":  organizer.Name,
+			"ChangedBy":      user.FirstName + " " + user.LastName,
+			"ChangedByEmail": user.Email,
+			"IPAddress":      getClientIP(r),
+			"Timestamp":      fmt.Sprintf("%s", r.Context().Value("timestamp")),
+			"SupportEmail":   h.notifications.GetSupportEmail(),
+		}
+
+		if err := h.notifications.SendBankDetailsChangeNotification(accountUser.Email, emailData); err != nil {
+			fmt.Printf("Failed to send bank details change notification to %s: %v\n", accountUser.Email, err)
+		}
+	}
+}
+
+// getClientIP extracts the client IP address from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxied requests)
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		return forwarded
+	}
+	// Check X-Real-IP header
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		return realIP
+	}
+	// Fallback to RemoteAddr
+	return r.RemoteAddr
 }

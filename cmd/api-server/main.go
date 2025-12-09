@@ -187,13 +187,11 @@ func main() {
 	router.HandleFunc("/organizers/verification/email", organizerHandler.SendVerificationEmail).Methods(http.MethodPost)
 	router.HandleFunc("/organizers/verify-email", organizerHandler.VerifyOrganizerEmail).Methods(http.MethodPost)
 
-	// Organizer routes - Bank Details (encrypted)
+	// Organizer routes - Bank Details (encrypted) - FOR PAYOUTS ONLY
+	// Note: All customer payments go through the platform's payment gateway.
+	// Organizers provide bank details to receive automatic payouts/settlements.
 	router.HandleFunc("/organizers/bank-details", organizerHandler.UpdateBankDetails).Methods(http.MethodPut)
 	router.HandleFunc("/organizers/bank-details", organizerHandler.GetBankDetails).Methods(http.MethodGet)
-
-	// Organizer routes - Payment Gateway Configuration
-	router.HandleFunc("/organizers/payment-gateway", organizerHandler.ConfigurePaymentGateway).Methods(http.MethodPost)
-	router.HandleFunc("/organizers/payment-gateway", organizerHandler.GetPaymentGatewayConfig).Methods(http.MethodGet)
 
 	// Admin organizer routes
 	router.HandleFunc("/admin/organizers/pending", organizerHandler.GetPendingOrganizers).Methods(http.MethodGet)

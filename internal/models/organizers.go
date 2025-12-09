@@ -25,14 +25,15 @@ type Organizer struct {
 	PageBgColor         string
 	PageTextColor       string
 	EnableOrganizerPage bool
-	// Payment and bank details
-	PaymentGatewayID    *uint           `gorm:"index"`
+	// Bank details for PAYOUTS only (NOT for collecting payments from customers)
+	// Platform collects all customer payments, then uses these details to pay organizers
+	PaymentGatewayID    *uint           `gorm:"index"` // DEPRECATED: Not used in centralized payment model
 	PaymentGateway      *PaymentGateway `gorm:"foreignKey:PaymentGatewayID"`
-	BankAccountName     string
-	BankAccountNumber   string
-	BankCode            string
-	BankCountry         string
-	IsPaymentConfigured bool `gorm:"default:false"`
+	BankAccountName     string          // Account holder name for payouts
+	BankAccountNumber   string          // Encrypted account number for payouts
+	BankCode            string          // Encrypted bank/SWIFT code for payouts
+	BankCountry         string          // Country code for payout destination
+	IsPaymentConfigured bool            `gorm:"default:false"` // DEPRECATED: Use bank details presence instead
 	// Verification and approval
 	IsVerified         bool   `gorm:"default:false"`
 	VerificationStatus string `gorm:"type:varchar(50);default:'pending'"` // "pending", "kyc_scheduled", "kyc_completed", "approved", "rejected"

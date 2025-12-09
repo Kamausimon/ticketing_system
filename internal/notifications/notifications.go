@@ -677,3 +677,132 @@ The Ticketing System Team
 	log.Printf("✅ Welcome email sent to %s", email)
 	return nil
 }
+
+// SendBankDetailsChangeNotification sends notification when bank details are changed
+func (s *NotificationService) SendBankDetailsChangeNotification(email string, data map[string]interface{}) error {
+	name := data["Name"].(string)
+	organizerName := data["OrganizerName"].(string)
+	changedBy := data["ChangedBy"].(string)
+	changedByEmail := data["ChangedByEmail"].(string)
+	ipAddress := data["IPAddress"].(string)
+	timestamp := time.Now().Format("January 2, 2006 at 3:04 PM MST")
+	supportEmail := s.GetSupportEmail()
+
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #ff9800; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border: 1px solid #ddd; border-radius: 0 0 5px 5px; }
+        .alert { background: #fff3cd; border-left: 4px solid #ff9800; padding: 15px; margin: 20px 0; }
+        .info-box { background: #fff; border: 1px solid #ddd; padding: 15px; margin: 20px 0; border-radius: 5px; }
+        .info-row { padding: 8px 0; border-bottom: 1px solid #eee; }
+        .info-row:last-child { border-bottom: none; }
+        .label { font-weight: bold; color: #666; display: inline-block; width: 150px; }
+        .warning { background: #f8d7da; border: 1px solid #f5c2c7; padding: 15px; margin: 20px 0; border-radius: 5px; color: #842029; }
+        .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏦 Bank Details Updated</h1>
+        </div>
+        <div class="content">
+            <p>Hi %s,</p>
+            
+            <div class="alert">
+                <strong>⚠️ Security Alert:</strong> The bank account details for <strong>%s</strong> have been updated.
+            </div>
+            
+            <div class="info-box">
+                <h3 style="margin-top: 0;">Change Details:</h3>
+                <div class="info-row">
+                    <span class="label">Changed By:</span> %s (%s)
+                </div>
+                <div class="info-row">
+                    <span class="label">Timestamp:</span> %s
+                </div>
+                <div class="info-row">
+                    <span class="label">IP Address:</span> %s
+                </div>
+            </div>
+            
+            <div class="warning">
+                <strong>⚠️ Didn't make this change?</strong><br><br>
+                If you did not authorize this change, please take immediate action:
+                <ul style="margin: 10px 0;">
+                    <li>Contact support immediately at <strong>%s</strong></li>
+                    <li>Change your account password</li>
+                    <li>Review your account activity</li>
+                    <li>Check for any unauthorized access</li>
+                </ul>
+            </div>
+            
+            <p><strong>Why did I receive this?</strong></p>
+            <p>All team members with access to the organizer account receive this notification for security purposes. This helps detect unauthorized changes and protects your payment information.</p>
+            
+            <p style="margin-top: 30px;">If you made this change, no action is required.</p>
+            
+            <p style="margin-top: 30px;">Best regards,<br>The Ticketing System Security Team</p>
+        </div>
+        <div class="footer">
+            <p>This is a security notification. For your protection, we cannot disable these alerts.</p>
+            <p>&copy; 2025 Ticketing System. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`, name, organizerName, changedBy, changedByEmail, timestamp, ipAddress, supportEmail)
+
+	emailData := EmailData{
+		To:       []string{email},
+		Subject:  "🏦 Security Alert: Bank Details Updated",
+		HTMLBody: htmlBody,
+		Body: fmt.Sprintf(`Bank Details Updated - Security Alert
+
+Hi %s,
+
+SECURITY ALERT: The bank account details for %s have been updated.
+
+Change Details:
+- Changed By: %s (%s)
+- Timestamp: %s
+- IP Address: %s
+
+DIDN'T MAKE THIS CHANGE?
+If you did not authorize this change, please take immediate action:
+1. Contact support immediately at %s
+2. Change your account password
+3. Review your account activity
+4. Check for any unauthorized access
+
+Why did I receive this?
+All team members with access to the organizer account receive this notification for security purposes.
+
+If you made this change, no action is required.
+
+Best regards,
+The Ticketing System Security Team
+`, name, organizerName, changedBy, changedByEmail, timestamp, ipAddress, supportEmail),
+	}
+
+	if err := s.emailService.Send(emailData); err != nil {
+		log.Printf("❌ Failed to send bank details change notification to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Bank details change notification sent to %s", email)
+	return nil
+}
+
+// GetSupportEmail returns the support email address
+func (s *NotificationService) GetSupportEmail() string {
+	if s.config.Email.FromEmail != "" {
+		return s.config.Email.FromEmail
+	}
+	return "support@ticketingsystem.com"
+}
