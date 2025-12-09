@@ -185,6 +185,7 @@ func main() {
 	router.HandleFunc("/organizers/dashboard/stats", organizerHandler.GetQuickStats).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/logo", organizerHandler.UploadOrganizerLogo).Methods(http.MethodPost)
 	router.HandleFunc("/organizers/verification/email", organizerHandler.SendVerificationEmail).Methods(http.MethodPost)
+	router.HandleFunc("/organizers/verify-email", organizerHandler.VerifyOrganizerEmail).Methods(http.MethodPost)
 
 	// Organizer routes - Bank Details (encrypted)
 	router.HandleFunc("/organizers/bank-details", organizerHandler.UpdateBankDetails).Methods(http.MethodPut)
@@ -197,6 +198,7 @@ func main() {
 	// Admin organizer routes
 	router.HandleFunc("/admin/organizers/pending", organizerHandler.GetPendingOrganizers).Methods(http.MethodGet)
 	router.HandleFunc("/admin/organizers/{id}/verify", organizerHandler.VerifyOrganizer).Methods(http.MethodPost)
+	router.HandleFunc("/organizers/kyc/update", organizerHandler.UpdateKYCStatus).Methods(http.MethodPut)
 
 	// Event routes - Public
 	router.HandleFunc("/events", eventHandler.ListEvents).Methods(http.MethodGet)

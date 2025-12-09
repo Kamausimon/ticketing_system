@@ -35,6 +35,10 @@ type Organizer struct {
 	IsPaymentConfigured bool `gorm:"default:false"`
 	// Verification and approval
 	IsVerified         bool   `gorm:"default:false"`
-	VerificationStatus string // "pending", "approved", "rejected"
-	RejectionReason    string
+	VerificationStatus string `gorm:"type:varchar(50);default:'pending'"` // "pending", "kyc_scheduled", "kyc_completed", "approved", "rejected"
+	RejectionReason    string `gorm:"type:text"`
+	// KYC tracking
+	KYCStatus      string  `gorm:"type:varchar(50);default:'pending'"` // "pending", "scheduled", "completed", "failed"
+	KYCNotes       string  `gorm:"type:text"`                          // Admin notes from KYC process
+	KYCCompletedAt *string // When KYC was completed
 }

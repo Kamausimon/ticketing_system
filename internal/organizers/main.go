@@ -168,3 +168,81 @@ func (h *OrganizerHandler) OrganizerApply(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
+
+// UpdateKYCStatusRequest for updating KYC status and notes
+type UpdateKYCStatusRequest struct {
+	KYCStatus string `json:"kyc_status"` // "pending", "scheduled", "completed", "failed"
+	KYCNotes  string `json:"kyc_notes"`  // Admin notes from KYC process
+}
+
+// UpdateKYCStatus allows admins to update KYC status and add notes
+func (h *OrganizerHandler) UpdateKYCStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get organizer ID from URL path
+	organizerID := r.URL.Query().Get("id")
+	if organizerID == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "organizer ID is required")
+		return
+	}
+
+	// Parse request body
+	var req UpdateKYCStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Validate KYC status
+	validStatuses := map[string]bool{
+		"pending":   true,
+		"scheduled": true,
+		"completed": true,
+		"failed":    true,
+	}
+	if req.KYCStatus != "" && !validStatuses[req.KYCStatus] {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid KYC status")
+		return
+	}
+
+	// Find organizer
+	var organizer models.Organizer
+	if err := h.db.Where("id = ?", organizerID).First(&organizer).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "organizer not found")
+		return
+	}
+
+	// Update KYC fields
+	updates := map[string]interface{}{}
+	if req.KYCStatus != "" {
+		updates["kyc_status"] = req.KYCStatus
+
+		// If KYC completed, update verification status
+		if req.KYCStatus == "completed" {
+			updates["verification_status"] = "kyc_completed"
+		}
+	}
+	if req.KYCNotes != "" {
+		// Append to existing notes with separator
+		existingNotes := organizer.KYCNotes
+		if existingNotes != "" {
+			existingNotes += "\n\n---\n\n"
+		}
+		updates["kyc_notes"] = existingNotes + req.KYCNotes
+	}
+
+	// Update in database
+	if err := h.db.Model(&organizer).Updates(updates).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update KYC status")
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":      "KYC status updated successfully",
+		"kyc_status":   req.KYCStatus,
+		"organizer_id": organizer.ID,
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}

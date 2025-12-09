@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"ticketing_system/internal/auth"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
@@ -216,11 +217,15 @@ func (h *OrganizerHandler) SendVerificationEmail(w http.ResponseWriter, r *http.
 
 	// Store verification token
 	verification := models.EmailVerification{
+		UserID:     userID,
 		Email:      organizer.Email,
 		Token:      token,
 		ExpiresAt:  expiresAt,
 		IssuedAt:   time.Now(),
 		LastSentAt: time.Now(),
+		Status:     models.VerificationPending,
+		IPAddress:  auth.GetClientIP(r),
+		UserAgent:  r.UserAgent(),
 	}
 
 	if err := h.db.Create(&verification).Error; err != nil {
@@ -228,16 +233,115 @@ func (h *OrganizerHandler) SendVerificationEmail(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Send verification email (assuming email package is available)
-	// In production, integrate with actual email service
-	verificationLink := "https://yourdomain.com/verify-email?token=" + token
-
-	// Log for now (replace with actual email sending)
-	_ = verificationLink // Placeholder for email sending
+	// Send verification email using notification service
+	if h.notifications != nil {
+		emailData := notifications.EmailVerificationData{
+			Name:             organizer.Name,
+			Email:            organizer.Email,
+			VerificationLink: "https://yourdomain.com/organizers/verify-email?token=" + token,
+			ExpiresAt:        expiresAt.Format("January 2, 2006 at 3:04 PM"),
+		}
+		if err := h.notifications.SendOrganizerEmailVerification(organizer.Email, emailData); err != nil {
+			log.Printf("❌ Failed to send verification email: %v", err)
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to send verification email")
+			return
+		}
+	} else {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "email service not configured")
+		return
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message":    "Verification email sent successfully",
 		"expires_at": expiresAt,
+	})
+}
+
+// VerifyOrganizerEmail verifies organizer email using token
+func (h *OrganizerHandler) VerifyOrganizerEmail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get token from query parameter
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "verification token is required")
+		return
+	}
+
+	// Find verification record
+	var verification models.EmailVerification
+	if err := h.db.Where("token = ?", token).First(&verification).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "invalid or expired verification token")
+		return
+	}
+
+	// Check if token is expired
+	if time.Now().After(verification.ExpiresAt) {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "verification token has expired")
+		return
+	}
+
+	// Check if already verified
+	if verification.VerifiedAt != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "email already verified")
+		return
+	}
+
+	// Find organizer by email
+	var organizer models.Organizer
+	if err := h.db.Where("email = ?", verification.Email).First(&organizer).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "organizer not found")
+		return
+	}
+
+	// Start transaction
+	tx := h.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Mark email as verified
+	now := time.Now()
+	if err := tx.Model(&verification).Updates(map[string]interface{}{
+		"verified_at": now,
+	}).Error; err != nil {
+		tx.Rollback()
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update verification status")
+		return
+	}
+
+	// Update organizer email confirmation status
+	if err := tx.Model(&organizer).Updates(map[string]interface{}{
+		"is_email_confirmed":  true,
+		"verification_status": "email_verified",
+	}).Error; err != nil {
+		tx.Rollback()
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update organizer status")
+		return
+	}
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to complete verification")
+		return
+	}
+
+	// Send welcome/confirmation email
+	if h.notifications != nil {
+		welcomeData := notifications.OrganizerWelcomeData{
+			OrganizerName:  organizer.Name,
+			OrganizerEmail: organizer.Email,
+		}
+		if err := h.notifications.SendOrganizerWelcome(organizer.Email, welcomeData); err != nil {
+			log.Printf("❌ Failed to send welcome email: %v", err)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "Email verified successfully",
+		"status":  "email_verified",
 	})
 }
 
