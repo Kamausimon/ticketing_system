@@ -80,13 +80,6 @@ func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Re
 			Required:    true,
 		},
 		{
-			Step:        "payment_setup",
-			Title:       "Payment Gateway",
-			Description: "Set up payment processing",
-			Completed:   organizer.IsPaymentConfigured,
-			Required:    true,
-		},
-		{
 			Step:        "branding",
 			Title:       "Branding Setup",
 			Description: "Upload logo and customize page",
