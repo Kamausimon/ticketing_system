@@ -405,18 +405,14 @@ const organizerApprovalTemplate = `
                 <h3>Next Steps:</h3>
                 <div class="step">
                     <span class="step-number">1</span>
-                    <strong>Complete Payment Setup</strong> - Configure your payment gateway to accept payments
-                </div>
-                <div class="step">
-                    <span class="step-number">2</span>
                     <strong>Add Bank Details</strong> - Set up your bank account for payouts
                 </div>
                 <div class="step">
-                    <span class="step-number">3</span>
+                    <span class="step-number">2</span>
                     <strong>Create Your First Event</strong> - Start selling tickets
                 </div>
                 <div class="step">
-                    <span class="step-number">4</span>
+                    <span class="step-number">3</span>
                     <strong>Customize Your Page</strong> - Add branding and logos
                 </div>
             </div>

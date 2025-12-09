@@ -57,7 +57,7 @@ func (h *OrganizerHandler) GetPendingOrganizers(w http.ResponseWriter, r *http.R
 
 	// Get organizers with unconfirmed emails (pending verification)
 	var organizers []models.Organizer
-	if err := h.db.Where("is_email_confirmed = ?", false).Find(&organizers).Error; err != nil {
+	if err := h.db.Where("is_verified = ?", false).Find(&organizers).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch pending organizers")
 		return
 	}
@@ -99,9 +99,15 @@ func (h *OrganizerHandler) VerifyOrganizer(w http.ResponseWriter, r *http.Reques
 
 	// Get organizer ID from URL
 	vars := mux.Vars(r)
-	organizerID, err := strconv.ParseUint(vars["id"], 10, 32)
+	idStr := vars["id"]
+	if idStr == "" {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "organizer ID is required")
+		return
+	}
+
+	organizerID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid organizer ID")
+		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid organizer ID format")
 		return
 	}
 

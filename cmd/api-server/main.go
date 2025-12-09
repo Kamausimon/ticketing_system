@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"ticketing_system/internal/accounts"
+	"ticketing_system/internal/admin"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/attendees"
 	"ticketing_system/internal/auth"
@@ -113,6 +114,7 @@ func main() {
 	settlementHandler := settlement.NewSettlementHandler(settlementService)
 	attendeeHandler := attendees.NewAttendeeHandler(DB, metrics)
 	venueHandler := venues.NewVenueHandler(DB, metrics)
+	adminUserHandler := admin.NewUserHandler(DB)
 	router := mux.NewRouter()
 
 	// Initialize rate limiters for different endpoint categories
@@ -197,6 +199,14 @@ func main() {
 	router.HandleFunc("/admin/organizers/pending", organizerHandler.GetPendingOrganizers).Methods(http.MethodGet)
 	router.HandleFunc("/admin/organizers/{id}/verify", organizerHandler.VerifyOrganizer).Methods(http.MethodPost)
 	router.HandleFunc("/organizers/kyc/update", organizerHandler.UpdateKYCStatus).Methods(http.MethodPut)
+
+	// Admin user management routes
+	router.HandleFunc("/admin/users", adminUserHandler.ListUsers).Methods(http.MethodGet)
+	router.HandleFunc("/admin/users/search", adminUserHandler.SearchUsers).Methods(http.MethodGet)
+	router.HandleFunc("/admin/users/stats", adminUserHandler.GetUserStats).Methods(http.MethodGet)
+	router.HandleFunc("/admin/users/{id}", adminUserHandler.GetUserDetails).Methods(http.MethodGet)
+	router.HandleFunc("/admin/users/{id}/role", adminUserHandler.UpdateUserRole).Methods(http.MethodPut)
+	router.HandleFunc("/admin/users/{id}/status", adminUserHandler.UpdateUserStatus).Methods(http.MethodPut)
 
 	// Event routes - Public
 	router.HandleFunc("/events", eventHandler.ListEvents).Methods(http.MethodGet)

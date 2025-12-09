@@ -9,6 +9,7 @@ import (
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
 	"ticketing_system/internal/security"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -105,8 +106,8 @@ func (h *OrganizerHandler) OrganizerApply(w http.ResponseWriter, r *http.Request
 		IsEmailConfirmed:    false, // Will be confirmed later
 		ShowTwitterWidget:   false,
 		ShowFacebookWidget:  false,
-		TaxName:             req.TaxName,
-		TaxPin:              req.TaxPin,
+		TaxName:             strings.TrimSpace(req.TaxName),
+		TaxPin:              strings.TrimSpace(req.TaxPin),
 		PageHeaderBgColor:   req.PageHeaderBgColor,
 		PageBgColor:         req.PageBgColor,
 		PageTextColor:       req.PageTextColor,
@@ -217,9 +218,19 @@ func (h *OrganizerHandler) UpdateKYCStatus(w http.ResponseWriter, r *http.Reques
 	if req.KYCStatus != "" {
 		updates["kyc_status"] = req.KYCStatus
 
-		// If KYC completed, update verification status
-		if req.KYCStatus == "completed" {
+		// Update verification status based on KYC status
+		switch req.KYCStatus {
+		case "completed":
+			// KYC is done, admin will then use the verify endpoint to approve or reject
 			updates["verification_status"] = "kyc_completed"
+			now := time.Now().Format(time.RFC3339)
+			updates["kyc_completed_at"] = now
+		case "scheduled":
+			updates["verification_status"] = "kyc_scheduled"
+		case "failed":
+			updates["verification_status"] = "kyc_failed"
+		case "pending":
+			updates["verification_status"] = "pending"
 		}
 	}
 	if req.KYCNotes != "" {
