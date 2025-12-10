@@ -92,7 +92,7 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Preload related data
 	query = query.Preload("Organizer").
-		Preload("EventVenues.Venue").
+		Preload("Venue").
 		Preload("EventImages")
 
 	// Execute query
@@ -220,7 +220,7 @@ func (h *EventHandler) ListOrganizerEvents(w http.ResponseWriter, r *http.Reques
 
 	// Preload related data
 	query = query.Preload("Organizer").
-		Preload("EventVenues.Venue").
+		Preload("Venue").
 		Preload("EventImages")
 
 	// Execute query

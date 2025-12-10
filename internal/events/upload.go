@@ -27,6 +27,7 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 
 	userID := middleware.GetUserIDFromToken(r)
+	fmt.Printf("user id %d", userID)
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -45,6 +46,13 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 	var user models.User
 	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	// Ensure user has an account ID
+	fmt.Printf("account id %d", user.AccountID)
+	if user.AccountID == 0 {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "user account not properly configured")
 		return
 	}
 
@@ -124,6 +132,8 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 	eventImage := models.EventImages{
 		EventID:   uint(eventID),
 		ImagePath: filepath,
+		AccountID: user.AccountID,
+		UserID:    userID,
 	}
 
 	if err := h.db.Create(&eventImage).Error; err != nil {

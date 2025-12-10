@@ -80,7 +80,7 @@ func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Preload related data
 	query = query.Preload("Organizer").
-		Preload("EventVenues.Venue").
+		Preload("Venue").
 		Preload("EventImages")
 
 	// Execute query
@@ -207,7 +207,7 @@ func (h *EventHandler) SearchOrganizerEvents(w http.ResponseWriter, r *http.Requ
 
 	// Preload related data
 	query = query.Preload("Organizer").
-		Preload("EventVenues.Venue").
+		Preload("Venue").
 		Preload("EventImages")
 
 	// Execute query

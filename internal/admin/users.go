@@ -288,10 +288,10 @@ func (h *UserHandler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent deactivating own account
+	// Prevent changing own account status
 	adminUserID := middleware.GetUserIDFromToken(r)
 	if adminUserID == user.ID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "cannot deactivate your own account")
+		middleware.WriteJSONError(w, http.StatusForbidden, "cannot change your own account status")
 		return
 	}
 
