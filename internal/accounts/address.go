@@ -75,55 +75,70 @@ func (h *AccountHandler) UpdateAccountAddress(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Track which fields to update
+	updates := make(map[string]interface{})
+
 	// Update address fields
 	if req.Address1 != nil {
 		trimmed := strings.TrimSpace(*req.Address1)
 		if trimmed == "" {
-			account.Address1 = nil
+			updates["address1"] = nil
 		} else {
-			account.Address1 = &trimmed
+			updates["address1"] = trimmed
 		}
 	}
 
 	if req.Address2 != nil {
 		trimmed := strings.TrimSpace(*req.Address2)
 		if trimmed == "" {
-			account.Address2 = nil
+			updates["address2"] = nil
 		} else {
-			account.Address2 = &trimmed
+			updates["address2"] = trimmed
 		}
 	}
 
 	if req.City != nil {
 		trimmed := strings.TrimSpace(*req.City)
 		if trimmed == "" {
-			account.City = nil
+			updates["city"] = nil
 		} else {
-			account.City = &trimmed
+			updates["city"] = trimmed
 		}
 	}
 
 	if req.County != nil {
 		trimmed := strings.TrimSpace(*req.County)
 		if trimmed == "" {
-			account.County = nil
+			updates["county"] = nil
 		} else {
-			account.County = &trimmed
+			updates["county"] = trimmed
 		}
 	}
 
 	if req.PostalCode != nil {
 		trimmed := strings.TrimSpace(*req.PostalCode)
 		if trimmed == "" {
-			account.PostalCode = nil
+			updates["postal_code"] = nil
 		} else {
-			account.PostalCode = &trimmed
+			updates["postal_code"] = trimmed
 		}
 	}
 
-	// Save account
-	if err := h.db.Save(&account).Error; err != nil {
+	// Check if there are any updates to apply
+	if len(updates) == 0 {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "no address fields provided")
+		return
+	}
+
+	// Apply updates using GORM's Updates method with map to handle nil values correctly
+	if err := h.db.Model(&account).Updates(updates).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update address")
+		return
+	}
+
+	// Reload account to get updated values
+	if err := h.db.Where("id = ?", account.ID).First(&account).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to retrieve updated address")
 		return
 	}
 

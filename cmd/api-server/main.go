@@ -22,6 +22,7 @@ import (
 	"ticketing_system/internal/promotions"
 	"ticketing_system/internal/refunds"
 	"ticketing_system/internal/security"
+	"ticketing_system/internal/seed"
 	"ticketing_system/internal/settlement"
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
@@ -35,11 +36,26 @@ import (
 func main() {
 	DB := database.Init()
 
-	err := DB.AutoMigrate(&models.User{}, &models.EmailVerification{}, &models.WaitlistEntry{}, &models.TicketTransferHistory{})
+	err := DB.AutoMigrate(
+		&models.User{},
+		&models.EmailVerification{},
+		&models.WaitlistEntry{},
+		&models.TicketTransferHistory{},
+		&models.Timezone{},
+		&models.Currency{},
+		&models.DateFormat{},
+		&models.DateTimeFormat{},
+	)
 	if err != nil {
 		fmt.Printf("Migration failed: %v\n", err)
 	} else {
 		fmt.Println("✅ Database migration completed successfully")
+	}
+
+	// Seed preferences data (timezones, currencies, date formats)
+	fmt.Println("🌱 Seeding preferences data...")
+	if err := seed.SeedPreferencesData(DB); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to seed preferences data: %v\n", err)
 	}
 
 	// Initialize Prometheus metrics
@@ -243,6 +259,7 @@ func main() {
 	router.HandleFunc("/account/timezones", accountHandler.GetAvailableTimezones).Methods(http.MethodGet)
 	router.HandleFunc("/account/currencies", accountHandler.GetAvailableCurrencies).Methods(http.MethodGet)
 	router.HandleFunc("/account/date-formats", accountHandler.GetDateFormats).Methods(http.MethodGet)
+	router.HandleFunc("/account/datetime-formats", accountHandler.GetDateTimeFormats).Methods(http.MethodGet)
 
 	// Account routes - Security
 	router.HandleFunc("/account/security", accountHandler.GetSecuritySettings).Methods(http.MethodGet)
@@ -262,12 +279,6 @@ func main() {
 	router.HandleFunc("/account/payment-methods", accountHandler.GetPaymentMethods).Methods(http.MethodGet)
 	router.HandleFunc("/account/payment-gateway", accountHandler.GetPaymentGatewaySettings).Methods(http.MethodGet)
 	router.HandleFunc("/account/payment-gateway/info", accountHandler.GetPaymentGatewayInfo).Methods(http.MethodGet)
-
-	// Account routes - Stripe Integration (Organizers only)
-	router.HandleFunc("/account/stripe/setup", accountHandler.SetupStripeIntegration).Methods(http.MethodPost)
-	router.HandleFunc("/account/stripe/connect", accountHandler.SetupStripeConnect).Methods(http.MethodPost)
-	router.HandleFunc("/account/stripe/complete", accountHandler.CompleteStripeSetup).Methods(http.MethodPost)
-	router.HandleFunc("/account/stripe/disconnect", accountHandler.DisconnectStripe).Methods(http.MethodDelete)
 
 	// Order routes - Creation & Calculation - with rate limiting
 	router.HandleFunc("/orders", apiLimiter.HandlerFunc(orderHandler.CreateOrder)).Methods(http.MethodPost)

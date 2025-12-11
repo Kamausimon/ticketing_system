@@ -186,7 +186,7 @@ func convertToAccountResponse(account models.Account) AccountResponse {
 	}
 
 	// Add payment gateway info if available
-	if account.PaymentGateway.ID > 0 {
+	if account.PaymentGateway != nil && account.PaymentGateway.ID > 0 {
 		hasStripe := account.StripeAccessToken != nil &&
 			account.StripeSecretKey != nil &&
 			account.StripePublishableKey != nil

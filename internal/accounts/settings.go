@@ -104,67 +104,103 @@ func (h *AccountHandler) UpdateAccountPreferences(w http.ResponseWriter, r *http
 func (h *AccountHandler) GetAvailableTimezones(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Hardcoded timezone list - in production this might come from database
-	timezones := []map[string]interface{}{
-		{"id": 1, "name": "UTC", "offset": "+00:00"},
-		{"id": 2, "name": "EAT (East Africa Time)", "offset": "+03:00"},
-		{"id": 3, "name": "EST (Eastern Standard Time)", "offset": "-05:00"},
-		{"id": 4, "name": "PST (Pacific Standard Time)", "offset": "-08:00"},
-		{"id": 5, "name": "GMT (Greenwich Mean Time)", "offset": "+00:00"},
-		{"id": 6, "name": "IST (India Standard Time)", "offset": "+05:30"},
-		{"id": 7, "name": "JST (Japan Standard Time)", "offset": "+09:00"},
-		{"id": 8, "name": "AEST (Australian Eastern Time)", "offset": "+10:00"},
+	var timezones []models.Timezone
+	if err := h.db.Where("is_active = ?", true).Order(`"offset", display_name`).Find(&timezones).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch timezones")
+		return
 	}
 
-	response := map[string]interface{}{
-		"timezones": timezones,
+	// Format response
+	var response []map[string]interface{}
+	for _, tz := range timezones {
+		response = append(response, map[string]interface{}{
+			"id":           tz.ID,
+			"name":         tz.Name,
+			"display_name": tz.DisplayName,
+			"offset":       tz.Offset,
+			"iana_name":    tz.IanaName,
+		})
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"timezones": response,
+	})
 }
 
 // GetAvailableCurrencies handles getting available currency options
 func (h *AccountHandler) GetAvailableCurrencies(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Hardcoded currency list - in production this might come from database
-	currencies := []map[string]interface{}{
-		{"id": 1, "code": "USD", "name": "US Dollar", "symbol": "$"},
-		{"id": 2, "code": "KSH", "name": "Kenyan Shilling", "symbol": "KSh"},
-		{"id": 3, "code": "EUR", "name": "Euro", "symbol": "€"},
-		{"id": 4, "code": "GBP", "name": "British Pound", "symbol": "£"},
-		{"id": 5, "code": "NGN", "name": "Nigerian Naira", "symbol": "₦"},
-		{"id": 6, "code": "ZAR", "name": "South African Rand", "symbol": "R"},
-		{"id": 7, "code": "INR", "name": "Indian Rupee", "symbol": "₹"},
-		{"id": 8, "code": "JPY", "name": "Japanese Yen", "symbol": "¥"},
+	var currencies []models.Currency
+	if err := h.db.Where("is_active = ?", true).Order("code").Find(&currencies).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch currencies")
+		return
 	}
 
-	response := map[string]interface{}{
-		"currencies": currencies,
+	// Format response
+	var response []map[string]interface{}
+	for _, curr := range currencies {
+		response = append(response, map[string]interface{}{
+			"id":     curr.ID,
+			"code":   curr.Code,
+			"name":   curr.Name,
+			"symbol": curr.Symbol,
+		})
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"currencies": response,
+	})
 }
 
 // GetDateFormats handles getting available date format options
 func (h *AccountHandler) GetDateFormats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Hardcoded date format list - in production this might come from database
-	dateFormats := []map[string]interface{}{
-		{"id": 1, "format": "YYYY-MM-DD", "example": "2024-12-25"},
-		{"id": 2, "format": "DD/MM/YYYY", "example": "25/12/2024"},
-		{"id": 3, "format": "MM/DD/YYYY", "example": "12/25/2024"},
-		{"id": 4, "format": "DD-MM-YYYY", "example": "25-12-2024"},
-		{"id": 5, "format": "MMM DD, YYYY", "example": "Dec 25, 2024"},
-		{"id": 6, "format": "DD MMM YYYY", "example": "25 Dec 2024"},
+	var dateFormats []models.DateFormat
+	if err := h.db.Where("is_active = ?", true).Order("id").Find(&dateFormats).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch date formats")
+		return
 	}
 
-	response := map[string]interface{}{
-		"date_formats": dateFormats,
+	// Format response
+	var response []map[string]interface{}
+	for _, df := range dateFormats {
+		response = append(response, map[string]interface{}{
+			"id":      df.ID,
+			"format":  df.Format,
+			"example": df.Example,
+		})
 	}
 
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"date_formats": response,
+	})
+}
+
+// GetDateTimeFormats handles getting available datetime format options
+func (h *AccountHandler) GetDateTimeFormats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var dateTimeFormats []models.DateTimeFormat
+	if err := h.db.Where("is_active = ?", true).Order("id").Find(&dateTimeFormats).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch datetime formats")
+		return
+	}
+
+	// Format response
+	var response []map[string]interface{}
+	for _, dtf := range dateTimeFormats {
+		response = append(response, map[string]interface{}{
+			"id":      dtf.ID,
+			"format":  dtf.Format,
+			"example": dtf.Example,
+		})
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"datetime_formats": response,
+	})
 }
 
 // SettingsUpdateRequest represents settings update request
