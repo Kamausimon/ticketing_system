@@ -24,6 +24,7 @@ import (
 	"ticketing_system/internal/security"
 	"ticketing_system/internal/seed"
 	"ticketing_system/internal/settlement"
+	"ticketing_system/internal/ticketclasses"
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
 	"ticketing_system/pkg/ratelimit"
@@ -124,6 +125,7 @@ func main() {
 	}
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
+	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics)
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
@@ -239,6 +241,15 @@ func main() {
 	router.HandleFunc("/organizers/events/{id}/publish", eventHandler.PublishEvent).Methods(http.MethodPost)
 	router.HandleFunc("/organizers/events/{id}/images", eventHandler.UploadEventImage).Methods(http.MethodPost)
 	router.HandleFunc("/organizers/events/{id}/images/{imageId}", eventHandler.DeleteEventImage).Methods(http.MethodDelete)
+
+	// Ticket Class routes - Organizer only
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes", ticketClassHandler.CreateTicketClass).Methods(http.MethodPost)
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes", ticketClassHandler.ListTicketClasses).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes/{id}", ticketClassHandler.GetTicketClass).Methods(http.MethodGet)
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes/{id}", ticketClassHandler.UpdateTicketClass).Methods(http.MethodPut)
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes/{id}", ticketClassHandler.DeleteTicketClass).Methods(http.MethodDelete)
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes/{id}/pause", ticketClassHandler.PauseTicketClass).Methods(http.MethodPost)
+	router.HandleFunc("/organizers/events/{eventId}/ticket-classes/{id}/resume", ticketClassHandler.ResumeTicketClass).Methods(http.MethodPost)
 
 	// Account routes - Profile
 	router.HandleFunc("/account/profile", accountHandler.GetAccountProfile).Methods(http.MethodGet)
