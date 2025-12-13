@@ -131,6 +131,25 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Check if ticket class is paused or hidden
+		if ticketClass.IsPaused {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("ticket class '%s' is currently unavailable", ticketClass.Name))
+			return
+		}
+
+		// Check sale dates
+		if ticketClass.StartSaleDate != nil && now.Before(*ticketClass.StartSaleDate) {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("ticket class '%s' is not yet on sale", ticketClass.Name))
+			return
+		}
+		if ticketClass.EndSaleDate != nil && now.After(*ticketClass.EndSaleDate) {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("ticket class '%s' sale has ended", ticketClass.Name))
+			return
+		}
+
 		// Re-check availability after acquiring lock (another transaction may have purchased)
 		if ticketClass.QuantityAvailable != nil {
 			available := *ticketClass.QuantityAvailable - ticketClass.QuantitySold

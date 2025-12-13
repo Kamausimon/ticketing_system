@@ -3,6 +3,7 @@ package orders
 import (
 	"fmt"
 	"ticketing_system/internal/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -14,6 +15,7 @@ func (h *OrderHandler) calculateOrderTotal(db *gorm.DB, req CreateOrderRequest) 
 	}
 
 	var subtotal float64
+	now := time.Now()
 
 	// Calculate subtotal from items
 	for _, item := range req.Items {
@@ -25,6 +27,14 @@ func (h *OrderHandler) calculateOrderTotal(db *gorm.DB, req CreateOrderRequest) 
 		// Check if ticket class is paused or hidden
 		if ticketClass.IsPaused {
 			return nil, fmt.Errorf("ticket class '%s' is currently unavailable", ticketClass.Name)
+		}
+
+		// Check sale dates
+		if ticketClass.StartSaleDate != nil && now.Before(*ticketClass.StartSaleDate) {
+			return nil, fmt.Errorf("ticket class '%s' is not yet on sale", ticketClass.Name)
+		}
+		if ticketClass.EndSaleDate != nil && now.After(*ticketClass.EndSaleDate) {
+			return nil, fmt.Errorf("ticket class '%s' sale has ended", ticketClass.Name)
 		}
 
 		// Check ticket availability

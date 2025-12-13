@@ -298,9 +298,9 @@ func main() {
 	// Order routes - Viewing
 	router.HandleFunc("/orders", orderHandler.ListOrders).Methods(http.MethodGet)
 	router.HandleFunc("/orders/search", orderHandler.SearchOrders).Methods(http.MethodGet)
+	router.HandleFunc("/orders/stats", orderHandler.GetOrderStats).Methods(http.MethodGet)
 	router.HandleFunc("/orders/{id}", orderHandler.GetOrderDetails).Methods(http.MethodGet)
 	router.HandleFunc("/orders/{id}/summary", orderHandler.GetOrderSummary).Methods(http.MethodGet)
-	router.HandleFunc("/orders/stats", orderHandler.GetOrderStats).Methods(http.MethodGet)
 
 	// Order routes - Management - with rate limiting
 	router.HandleFunc("/orders/{id}/status", paymentLimiter.HandlerFunc(orderHandler.UpdateOrderStatus)).Methods(http.MethodPut)

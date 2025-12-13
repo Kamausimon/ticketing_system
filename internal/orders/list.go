@@ -8,6 +8,8 @@ import (
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // ListOrders handles listing orders with filtering and pagination
@@ -202,30 +204,34 @@ func (h *OrderHandler) GetOrderStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := OrderStats{}
-	query := h.db.Model(&models.Order{})
 
-	// Filter by account for non-admins
-	if user.Role != models.RoleAdmin {
-		query = query.Where("account_id = ?", user.AccountID)
+	// Build base query with account filter for non-admins
+	buildQuery := func() *gorm.DB {
+		query := h.db.Model(&models.Order{})
+		if user.Role != models.RoleAdmin {
+			query = query.Where("account_id = ?", user.AccountID)
+		}
+		return query
 	}
 
 	// Get total orders
-	query.Count(&stats.TotalOrders)
+	buildQuery().Count(&stats.TotalOrders)
 
 	// Get total revenue
 	var revenueResult struct {
 		Total float64
 	}
-	query.Select("COALESCE(SUM(amount), 0) as total").
+	buildQuery().
+		Select("COALESCE(SUM(amount), 0) as total").
 		Where("status = ? OR status = ?", models.OrderPaid, models.OrderFulfilled).
 		Scan(&revenueResult)
 	stats.TotalRevenue = revenueResult.Total
 
-	// Count by status
-	query.Where("status = ?", models.OrderPending).Count(&stats.PendingOrders)
-	query.Where("status = ? OR status = ?", models.OrderPaid, models.OrderFulfilled).Count(&stats.CompletedOrders)
-	query.Where("status = ?", models.OrderCancelled).Count(&stats.CancelledOrders)
-	query.Where("status = ?", models.OrderRefunded).Count(&stats.RefundedOrders)
+	// Count by status - use fresh queries each time
+	buildQuery().Where("status = ?", models.OrderPending).Count(&stats.PendingOrders)
+	buildQuery().Where("status = ? OR status = ?", models.OrderPaid, models.OrderFulfilled).Count(&stats.CompletedOrders)
+	buildQuery().Where("status = ?", models.OrderCancelled).Count(&stats.CancelledOrders)
+	buildQuery().Where("status = ?", models.OrderRefunded).Count(&stats.RefundedOrders)
 
 	// Calculate average order value
 	if stats.CompletedOrders > 0 {
@@ -292,6 +298,9 @@ func parseOrderFilter(r *http.Request) OrderFilter {
 
 	// Parse search term
 	filter.SearchTerm = r.URL.Query().Get("search")
+
+	// Parse email filter
+	filter.Email = r.URL.Query().Get("email")
 
 	return filter
 }

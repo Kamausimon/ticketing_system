@@ -46,9 +46,14 @@ func (h *OrderHandler) SearchOrders(w http.ResponseWriter, r *http.Request) {
 	// Apply search
 	search := "%" + strings.ToLower(searchQuery) + "%"
 	query = query.Where(
-		"LOWER(email) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR CAST(id AS TEXT) LIKE ? OR LOWER(phone_number) LIKE ?",
-		search, search, search, search, search,
+		"LOWER(email) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR CAST(id AS TEXT) LIKE ?",
+		search, search, search, search,
 	)
+
+	// Apply email filter (exact match)
+	if filter.Email != "" {
+		query = query.Where("LOWER(email) = ?", strings.ToLower(filter.Email))
+	}
 
 	// Apply other filters
 	if filter.Status != nil {
@@ -145,9 +150,14 @@ func (h *OrderHandler) SearchOrganizerOrders(w http.ResponseWriter, r *http.Requ
 	// Apply search
 	search := "%" + strings.ToLower(searchQuery) + "%"
 	query = query.Where(
-		"LOWER(orders.email) LIKE ? OR LOWER(orders.first_name) LIKE ? OR LOWER(orders.last_name) LIKE ? OR CAST(orders.id AS TEXT) LIKE ? OR LOWER(orders.phone_number) LIKE ? OR LOWER(events.title) LIKE ?",
-		search, search, search, search, search, search,
+		"LOWER(orders.email) LIKE ? OR LOWER(orders.first_name) LIKE ? OR LOWER(orders.last_name) LIKE ? OR CAST(orders.id AS TEXT) LIKE ? OR LOWER(events.title) LIKE ?",
+		search, search, search, search, search,
 	)
+
+	// Apply email filter (exact match)
+	if filter.Email != "" {
+		query = query.Where("LOWER(orders.email) = ?", strings.ToLower(filter.Email))
+	}
 
 	// Apply other filters
 	if filter.Status != nil {

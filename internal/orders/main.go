@@ -82,6 +82,7 @@ type OrderFilter struct {
 	StartDate     *time.Time
 	EndDate       *time.Time
 	SearchTerm    string // Search by email, name, order number
+	Email         string // Filter by specific email address
 }
 
 // OrderStats represents order statistics
