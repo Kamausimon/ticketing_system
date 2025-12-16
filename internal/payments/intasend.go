@@ -210,11 +210,21 @@ func (h *PaymentHandler) GetIntasendTransactionStatus(transactionID string) (*In
 		baseURL = IntasendSandboxBaseURL
 	}
 
-	req, err := http.NewRequest("GET", baseURL+"/payment/status/?invoice_id="+transactionID, nil)
+	// Create request body with invoice_id
+	reqBody := map[string]string{
+		"invoice_id": transactionID,
+	}
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", baseURL+"/payment/status/", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+h.IntasendSecretKey)
 
 	client := &http.Client{Timeout: 15 * time.Second}

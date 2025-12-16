@@ -3,99 +3,19 @@ package accounts
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 )
 
 // SetupStripeIntegration handles setting up Stripe payment integration
+// DEPRECATED: This system now uses Intasend API exclusively for payment processing
+// Stripe integration is disabled. Configure Intasend credentials via environment variables instead.
 func (h *AccountHandler) SetupStripeIntegration(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
-	if userID == 0 {
-		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-
-	// Parse request
-	var req StripeIntegrationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	// Validate required fields
-	if req.StripeSecretKey == "" || req.StripePublishableKey == "" {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "stripe secret key and publishable key are required")
-		return
-	}
-
-	// Get user to access AccountID
-	var user models.User
-	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	// Check if user is an organizer
-	if user.Role != models.RoleOrganizer {
-		middleware.WriteJSONError(w, http.StatusForbidden, "only organizers can set up payment integration")
-		return
-	}
-
-	// Get account
-	var account models.Account
-	if err := h.db.Where("id = ?", user.AccountID).First(&account).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusNotFound, "account not found")
-		return
-	}
-
-	// Update Stripe credentials
-	account.StripeAccessToken = &req.StripeAccessToken
-	account.StripeRefreshToken = &req.StripeRefreshToken
-	account.StripeSecretKey = &req.StripeSecretKey
-	account.StripePublishableKey = &req.StripePublishableKey
-
-	// Set up default payment gateway if not exists
-	if account.PaymentGatewayID == nil || *account.PaymentGatewayID == 0 {
-		// Find or create Stripe payment gateway
-		var gateway models.PaymentGateway
-		if err := h.db.Where("name = ?", "Stripe").First(&gateway).Error; err != nil {
-			// Create Stripe gateway if not exists
-			gateway = models.PaymentGateway{
-				ProviderName: "Stripe",
-				ProviderURL:  "https://api.stripe.com",
-				IsOnSite:     false,
-				CanRefund:    true,
-				Name:         "Stripe",
-			}
-			h.db.Create(&gateway)
-		}
-
-		account.PaymentGatewayID = &gateway.ID
-	}
-
-	// Save account
-	if err := h.db.Save(&account).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to setup stripe integration")
-		return
-	}
-
-	// Log activity
-	h.logAccountActivity(account.ID, "stripe_setup", "Stripe payment integration configured", getClientIP(r))
-
-	response := map[string]interface{}{
-		"message": "Stripe integration setup successfully",
-		"gateway": map[string]interface{}{
-			"provider":   "Stripe",
-			"is_active":  true,
-			"can_refund": true,
-			"setup_date": account.UpdatedAt,
-		},
-	}
-
-	json.NewEncoder(w).Encode(response)
+	middleware.WriteJSONError(w, http.StatusNotImplemented,
+		"Stripe integration is no longer supported. This system uses Intasend API for all payments (M-Pesa and Card). "+
+			"Configure INTASEND_PUBLISHABLE_KEY and INTASEND_SECRET_KEY environment variables.")
 }
 
 // GetPaymentMethods handles getting user's payment methods
@@ -176,28 +96,26 @@ func (h *AccountHandler) GetPaymentGatewaySettings(w http.ResponseWriter, r *htt
 	}
 
 	// Prepare settings response
+	// NOTE: This system uses Intasend API exclusively
 	settings := map[string]interface{}{
-		"stripe_configured": account.StripeSecretKey != nil && account.StripePublishableKey != nil,
-		"gateway_name":      "",
-		"gateway_active":    false,
-		"can_refund":        false,
-		"setup_date":        nil,
+		"payment_provider":  "Intasend",
+		"gateway_name":      "Intasend",
+		"gateway_active":    true,
+		"can_refund":        true,
+		"supported_methods": []string{"mpesa", "card"},
+		"stripe_configured": false, // Legacy - Stripe is no longer supported
+		"intasend_note":     "Intasend API is configured via environment variables (INTASEND_PUBLISHABLE_KEY, INTASEND_SECRET_KEY)",
 	}
 
+	// Legacy gateway info (for backward compatibility)
 	if account.PaymentGateway != nil && account.PaymentGateway.ID > 0 {
-		settings["gateway_name"] = account.PaymentGateway.Name
-		settings["gateway_active"] = true
-		settings["can_refund"] = account.PaymentGateway.CanRefund
+		settings["legacy_gateway_name"] = account.PaymentGateway.Name
 		settings["setup_date"] = account.UpdatedAt
 	}
 
-	// Mask sensitive information
+	// Note: Stripe credentials are deprecated and ignored
 	if account.StripePublishableKey != nil {
-		publishableKey := *account.StripePublishableKey
-		if len(publishableKey) > 8 {
-			masked := publishableKey[:8] + strings.Repeat("*", len(publishableKey)-8)
-			settings["stripe_publishable_key_masked"] = masked
-		}
+		settings["legacy_stripe_note"] = "Stripe integration is no longer active. Using Intasend for all payments."
 	}
 
 	json.NewEncoder(w).Encode(settings)

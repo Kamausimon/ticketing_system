@@ -35,6 +35,14 @@ import (
 )
 
 func main() {
+	// Load environment variables from .env file
+	if err := godotenv.Load(".env"); err != nil {
+		fmt.Printf("⚠️  Warning: Error loading .env file: %v\n", err)
+		fmt.Println("⚠️  Using system environment variables instead")
+	} else {
+		fmt.Println("✅ Environment variables loaded from .env file")
+	}
+
 	DB := database.Init()
 
 	err := DB.AutoMigrate(
@@ -307,10 +315,6 @@ func main() {
 	router.HandleFunc("/orders/{id}/cancel", paymentLimiter.HandlerFunc(orderHandler.CancelOrder)).Methods(http.MethodPost)
 	router.HandleFunc("/orders/{id}/refund", paymentLimiter.HandlerFunc(orderHandler.RefundOrder)).Methods(http.MethodPost)
 
-	// Order routes - Payment - with rate limiting
-	router.HandleFunc("/orders/{id}/payment", paymentLimiter.HandlerFunc(orderHandler.ProcessPayment)).Methods(http.MethodPost)
-	router.HandleFunc("/orders/{id}/payment/verify", paymentLimiter.HandlerFunc(orderHandler.VerifyPayment)).Methods(http.MethodPost)
-
 	// Order routes - Organizer view
 	router.HandleFunc("/organizers/orders", orderHandler.ListOrganizerOrders).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/orders/search", orderHandler.SearchOrganizerOrders).Methods(http.MethodGet)
@@ -425,7 +429,7 @@ func main() {
 
 	// Payment routes - Processing - with rate limiting
 	router.HandleFunc("/payments/initiate", paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment)).Methods(http.MethodPost)
-	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodGet)
+	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/orders/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetPaymentStatus)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
 

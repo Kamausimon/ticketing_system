@@ -7,12 +7,13 @@ import (
 	"strconv"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
-	"time"
 
 	"github.com/gorilla/mux"
 )
 
 // ProcessPayment handles processing payment for an order
+// DEPRECATED: Use the /api/payments/initiate endpoint instead for Intasend integration
+// This endpoint is maintained for backward compatibility with offline payments only
 func (h *OrderHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -80,16 +81,19 @@ func (h *OrderHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process payment based on method
+	// Only offline payments are supported through this endpoint
+	// For M-Pesa and Card payments, use /api/payments/initiate endpoint with Intasend
 	var paymentResult map[string]interface{}
 	switch req.PaymentMethod {
-	case "stripe":
-		paymentResult, err = h.processStripePayment(order, req)
-	case "mpesa":
-		paymentResult, err = h.processMpesaPayment(order, req)
 	case "offline":
 		paymentResult, err = h.processOfflinePayment(order, req)
+	case "mpesa", "card":
+		middleware.WriteJSONError(w, http.StatusBadRequest,
+			"Please use /api/payments/initiate endpoint for M-Pesa and Card payments via Intasend")
+		return
 	default:
-		middleware.WriteJSONError(w, http.StatusBadRequest, "unsupported payment method")
+		middleware.WriteJSONError(w, http.StatusBadRequest,
+			"unsupported payment method. Use 'offline' or initiate payment via /api/payments/initiate")
 		return
 	}
 
@@ -131,6 +135,8 @@ func (h *OrderHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 }
 
 // VerifyPayment handles verifying a payment (e.g., webhook callback)
+// DEPRECATED: Payment verification is now handled automatically via Intasend webhooks at /api/payments/webhook/intasend
+// This endpoint is maintained for backward compatibility with offline payment verification only
 func (h *OrderHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -156,9 +162,8 @@ func (h *OrderHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement actual payment verification with payment gateway
-	// This would verify the payment with Stripe, M-Pesa, etc.
-	// For now, assuming verification passed
+	// NOTE: For Intasend payments (M-Pesa/Card), verification is automatic via webhooks
+	// This endpoint is only for manual verification of offline payments
 
 	// Extract payment method from verification data
 	paymentMethod := "unknown"
@@ -190,39 +195,10 @@ func (h *OrderHandler) VerifyPayment(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// processStripePayment processes payment through Stripe
-func (h *OrderHandler) processStripePayment(order models.Order, req ProcessPaymentRequest) (map[string]interface{}, error) {
-	// TODO: Implement actual Stripe payment processing
-	// This is a mock implementation
-
-	// Simulate payment processing
-	time.Sleep(500 * time.Millisecond)
-
-	return map[string]interface{}{
-		"payment_method": "stripe",
-		"transaction_id": fmt.Sprintf("stripe_%d_%d", order.ID, time.Now().Unix()),
-		"status":         "success",
-		"amount":         req.Amount,
-		"currency":       req.Currency,
-	}, nil
-}
-
-// processMpesaPayment processes payment through M-Pesa
-func (h *OrderHandler) processMpesaPayment(order models.Order, req ProcessPaymentRequest) (map[string]interface{}, error) {
-	// TODO: Implement actual M-Pesa payment processing
-	// This is a mock implementation
-
-	// Simulate payment processing
-	time.Sleep(500 * time.Millisecond)
-
-	return map[string]interface{}{
-		"payment_method": "mpesa",
-		"transaction_id": fmt.Sprintf("mpesa_%d_%d", order.ID, time.Now().Unix()),
-		"status":         "success",
-		"amount":         req.Amount,
-		"currency":       req.Currency,
-	}, nil
-}
+// REMOVED: processStripePayment and processMpesaPayment
+// All online payments (M-Pesa, Card) are now processed through Intasend API
+// Use the /api/payments/initiate endpoint instead
+// See internal/payments/intasend.go for implementation details
 
 // processOfflinePayment processes offline payment
 func (h *OrderHandler) processOfflinePayment(order models.Order, req ProcessPaymentRequest) (map[string]interface{}, error) {

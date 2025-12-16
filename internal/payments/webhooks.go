@@ -17,23 +17,49 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// FlexibleFloat handles both string and float64 from JSON
+type FlexibleFloat float64
+
+func (f *FlexibleFloat) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as float64 first
+	var floatVal float64
+	if err := json.Unmarshal(data, &floatVal); err == nil {
+		*f = FlexibleFloat(floatVal)
+		return nil
+	}
+
+	// If that fails, try as string
+	var strVal string
+	if err := json.Unmarshal(data, &strVal); err != nil {
+		return err
+	}
+
+	// Parse the string as float
+	floatVal, err := strconv.ParseFloat(strVal, 64)
+	if err != nil {
+		return err
+	}
+	*f = FlexibleFloat(floatVal)
+	return nil
+}
+
 // Intasend Webhook Event Structure
 type IntasendWebhookEvent struct {
-	ID           string  `json:"id"`
-	InvoiceID    string  `json:"invoice_id"`
-	State        string  `json:"state"` // PENDING, PROCESSING, COMPLETE, FAILED
-	Provider     string  `json:"provider"`
-	Charges      float64 `json:"charges"`
-	NetAmount    float64 `json:"net_amount"`
-	Currency     string  `json:"currency"`
-	Value        float64 `json:"value"`
-	Account      string  `json:"account"`
-	APIRef       string  `json:"api_ref"`
-	Host         string  `json:"host"`
-	RetryCount   int     `json:"retry_count"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
-	FailedReason string  `json:"failed_reason,omitempty"`
+	ID           string        `json:"id"`
+	InvoiceID    string        `json:"invoice_id"`
+	State        string        `json:"state"` // PENDING, PROCESSING, COMPLETE, FAILED
+	Provider     string        `json:"provider"`
+	Charges      FlexibleFloat `json:"charges"`
+	NetAmount    FlexibleFloat `json:"net_amount"`
+	Currency     string        `json:"currency"`
+	Value        FlexibleFloat `json:"value"`
+	Account      string        `json:"account"`
+	APIRef       string        `json:"api_ref"`
+	Host         string        `json:"host"`
+	RetryCount   int           `json:"retry_count"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+	FailedReason string        `json:"failed_reason,omitempty"`
 }
 
 // HandleIntasendWebhook processes incoming webhooks from Intasend with enhanced error handling
@@ -55,14 +81,28 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 	}
 	defer r.Body.Close()
 
-	// Verify webhook signature
+	// Verify webhook signature (skip in test mode if signature is not provided)
 	signature := r.Header.Get("X-IntaSend-Signature")
-	if !h.verifyIntasendSignature(body, signature) {
-		// Log suspicious webhook
-		log.Printf("⚠️ Invalid webhook signature from %s", r.RemoteAddr)
-		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Invalid signature", r.RemoteAddr, r.UserAgent())
-		writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
-		return
+	if signature != "" {
+		// Signature provided - verify it
+		if !h.verifyIntasendSignature(body, signature) {
+			// Log suspicious webhook
+			log.Printf("⚠️ Invalid webhook signature from %s", r.RemoteAddr)
+			h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Invalid signature", r.RemoteAddr, r.UserAgent())
+			writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
+			return
+		}
+		log.Printf("✅ Webhook signature verified")
+	} else {
+		// No signature provided
+		if h.IntasendTestMode {
+			log.Printf("⚠️ No signature provided - allowing in TEST MODE")
+		} else {
+			log.Printf("❌ No signature provided in PRODUCTION MODE - rejecting")
+			h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Missing signature in production", r.RemoteAddr, r.UserAgent())
+			writeError(w, http.StatusUnauthorized, "Missing webhook signature")
+			return
+		}
 	}
 
 	// Parse webhook event
@@ -165,8 +205,8 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 	paymentRecord.ExternalTransactionID = &event.ID
 
 	// Calculate fees
-	charges := int64(event.Charges * 100) // Convert to cents
-	netAmount := int64(event.NetAmount * 100)
+	charges := int64(float64(event.Charges) * 100) // Convert to cents
+	netAmount := int64(float64(event.NetAmount) * 100)
 	paymentRecord.GatewayFeeAmount = models.Money(charges)
 	paymentRecord.NetAmount = models.Money(netAmount)
 
@@ -331,6 +371,7 @@ func (h *PaymentHandler) handleIntasendProcessing(event *IntasendWebhookEvent, p
 // verifyIntasendSignature verifies the webhook signature from Intasend
 func (h *PaymentHandler) verifyIntasendSignature(payload []byte, signature string) bool {
 	if h.IntasendWebhookSecret == "" {
+		log.Printf("⚠️ Webhook secret not configured")
 		return false // No secret configured
 	}
 
@@ -339,7 +380,21 @@ func (h *PaymentHandler) verifyIntasendSignature(payload []byte, signature strin
 	mac.Write(payload)
 	expectedSignature := hex.EncodeToString(mac.Sum(nil))
 
-	return hmac.Equal([]byte(signature), []byte(expectedSignature))
+	// Debug logging
+	log.Printf("🔐 Signature verification:")
+	log.Printf("   Received signature: %s", signature)
+	log.Printf("   Expected signature: %s", expectedSignature)
+	log.Printf("   Secret length: %d", len(h.IntasendWebhookSecret))
+	log.Printf("   Payload length: %d", len(payload))
+
+	isValid := hmac.Equal([]byte(signature), []byte(expectedSignature))
+	if !isValid {
+		log.Printf("❌ Signature mismatch!")
+	} else {
+		log.Printf("✅ Signature valid!")
+	}
+
+	return isValid
 }
 
 // checkDuplicateWebhook checks if we've already processed this webhook event
