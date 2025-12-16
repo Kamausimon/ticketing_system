@@ -3,6 +3,7 @@ package notifications
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"log"
@@ -210,8 +211,62 @@ func (s *EmailService) buildMessage(data EmailData) []byte {
 	buf.WriteString(fmt.Sprintf("Subject: %s\r\n", data.Subject))
 	buf.WriteString("MIME-Version: 1.0\r\n")
 
-	// If HTML body is provided, use multipart
-	if data.HTMLBody != "" {
+	// If there are attachments, use multipart/mixed
+	if len(data.Attachments) > 0 {
+		mixedBoundary := "boundary-mixed-ticketing"
+		buf.WriteString(fmt.Sprintf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n", mixedBoundary))
+		buf.WriteString("\r\n")
+
+		// Content part (HTML or plain text)
+		buf.WriteString(fmt.Sprintf("--%s\r\n", mixedBoundary))
+
+		if data.HTMLBody != "" {
+			// Use multipart/alternative for HTML + text
+			altBoundary := "boundary-alternative-ticketing"
+			buf.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n", altBoundary))
+			buf.WriteString("\r\n")
+
+			// Plain text part
+			if data.Body != "" {
+				buf.WriteString(fmt.Sprintf("--%s\r\n", altBoundary))
+				buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+				buf.WriteString("\r\n")
+				buf.WriteString(data.Body)
+				buf.WriteString("\r\n")
+			}
+
+			// HTML part
+			buf.WriteString(fmt.Sprintf("--%s\r\n", altBoundary))
+			buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+			buf.WriteString("\r\n")
+			buf.WriteString(data.HTMLBody)
+			buf.WriteString("\r\n")
+			buf.WriteString(fmt.Sprintf("--%s--\r\n", altBoundary))
+		} else {
+			// Plain text only
+			buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+			buf.WriteString("\r\n")
+			buf.WriteString(data.Body)
+			buf.WriteString("\r\n")
+		}
+
+		// Attachments
+		for _, att := range data.Attachments {
+			buf.WriteString(fmt.Sprintf("--%s\r\n", mixedBoundary))
+			buf.WriteString(fmt.Sprintf("Content-Type: %s\r\n", att.MimeType))
+			buf.WriteString("Content-Transfer-Encoding: base64\r\n")
+			buf.WriteString(fmt.Sprintf("Content-Disposition: attachment; filename=\"%s\"\r\n", att.Filename))
+			buf.WriteString("\r\n")
+
+			// Encode attachment in base64
+			encoded := encodeBase64(att.Content)
+			buf.WriteString(encoded)
+			buf.WriteString("\r\n")
+		}
+
+		buf.WriteString(fmt.Sprintf("--%s--\r\n", mixedBoundary))
+	} else if data.HTMLBody != "" {
+		// No attachments, HTML body
 		boundary := "boundary-ticketing-system"
 		buf.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n", boundary))
 		buf.WriteString("\r\n")
@@ -299,4 +354,23 @@ func joinEmails(emails []string) string {
 		result += ", " + emails[i]
 	}
 	return result
+}
+
+// encodeBase64 encodes bytes to base64 with line breaks (76 chars per line)
+func encodeBase64(data []byte) string {
+	const lineLength = 76
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	// Add line breaks every 76 characters
+	var buf bytes.Buffer
+	for i := 0; i < len(encoded); i += lineLength {
+		end := i + lineLength
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		buf.WriteString(encoded[i:end])
+		buf.WriteString("\r\n")
+	}
+
+	return buf.String()
 }

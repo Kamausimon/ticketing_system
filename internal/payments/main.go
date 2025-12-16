@@ -6,6 +6,7 @@ import (
 	"os"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
 
 	"gorm.io/gorm"
 )
@@ -13,6 +14,7 @@ import (
 type PaymentHandler struct {
 	db                     *gorm.DB
 	metrics                *analytics.PrometheusMetrics
+	notificationService    *notifications.NotificationService
 	IntasendPublishableKey string
 	IntasendSecretKey      string
 	IntasendWebhookSecret  string
@@ -22,10 +24,11 @@ type PaymentHandler struct {
 	// StripeWebhookSecret  string
 }
 
-func NewPaymentHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *PaymentHandler {
+func NewPaymentHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notifService *notifications.NotificationService) *PaymentHandler {
 	return &PaymentHandler{
 		db:                     db,
 		metrics:                metrics,
+		notificationService:    notifService,
 		IntasendPublishableKey: os.Getenv("INTASEND_PUBLISHABLE_KEY"),
 		IntasendSecretKey:      os.Getenv("INTASEND_SECRET_KEY"),
 		IntasendWebhookSecret:  os.Getenv("INTASEND_WEBHOOK_SECRET"),

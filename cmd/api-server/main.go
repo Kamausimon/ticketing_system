@@ -134,7 +134,7 @@ func main() {
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
 	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
-	paymentHandler := payments.NewPaymentHandler(DB, metrics)
+	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
 	settlementHandler := settlement.NewSettlementHandler(settlementService)
@@ -310,6 +310,8 @@ func main() {
 	router.HandleFunc("/orders/{id}", orderHandler.GetOrderDetails).Methods(http.MethodGet)
 	router.HandleFunc("/orders/{id}/summary", orderHandler.GetOrderSummary).Methods(http.MethodGet)
 
+	// all done above this
+
 	// Order routes - Management - with rate limiting
 	router.HandleFunc("/orders/{id}/status", paymentLimiter.HandlerFunc(orderHandler.UpdateOrderStatus)).Methods(http.MethodPut)
 	router.HandleFunc("/orders/{id}/cancel", paymentLimiter.HandlerFunc(orderHandler.CancelOrder)).Methods(http.MethodPost)
@@ -427,11 +429,16 @@ func main() {
 	router.HandleFunc("/inventory/reservations/session", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseSessionReservations)).Methods(http.MethodDelete)
 	router.HandleFunc("/inventory/events/{id}/reservations", apiLimiter.HandlerFunc(inventoryHandler.GetReservationsByEvent)).Methods(http.MethodGet)
 
+	//upto here
+
 	// Payment routes - Processing - with rate limiting
 	router.HandleFunc("/payments/initiate", paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment)).Methods(http.MethodPost)
+	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/orders/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetPaymentStatus)).Methods(http.MethodGet)
-	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
+
+	// Payment routes - Admin
+	router.HandleFunc("/admin/payments", apiLimiter.HandlerFunc(paymentHandler.GetAllPayments)).Methods(http.MethodGet)
 
 	// Payment routes - Methods (Saved payment methods) - with rate limiting
 	router.HandleFunc("/payments/methods", paymentLimiter.HandlerFunc(paymentHandler.SavePaymentMethod)).Methods(http.MethodPost)

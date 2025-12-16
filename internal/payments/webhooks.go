@@ -9,9 +9,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
+	"ticketing_system/pkg/pdf"
+	"ticketing_system/pkg/qrcode"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -114,52 +119,86 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	log.Printf("📨 Received webhook event: ID=%s, State=%s, APIRef=%s", event.ID, event.State, event.APIRef)
+	log.Printf("📨 Received webhook event: ID=%s, State=%s, APIRef=%s, InvoiceID=%s", event.ID, event.State, event.APIRef, event.InvoiceID)
 
-	// Check for duplicate events
-	isDuplicate := h.checkDuplicateWebhook(event.ID)
-	if isDuplicate {
-		log.Printf("⚠️ Duplicate webhook event: %s", event.ID)
-		h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, true, "Duplicate event", r.RemoteAddr, r.UserAgent())
-		writeJSON(w, http.StatusOK, WebhookEventResponse{
-			Received:  true,
-			Processed: false,
-			Message:   "Duplicate event ignored",
-		})
-		return
+	// Log webhook FIRST to prevent duplicate processing (acts as a lock)
+	now := time.Now()
+	headersJSON, _ := json.Marshal(r.Header)
+	userAgent := r.UserAgent()
+	webhookLog := models.WebhookLog{
+		Provider:          models.WebhookIntasend,
+		EventID:           event.ID,
+		EventType:         "payment",
+		Status:            models.WebhookReceived,
+		Payload:           string(body),
+		Headers:           string(headersJSON),
+		Success:           false,
+		IPAddress:         r.RemoteAddr,
+		UserAgent:         &userAgent,
+		SignatureValid:    true,
+		ProcessedAt:       &now,
+		ExternalReference: &event.InvoiceID,
+	}
+
+	// Try to create webhook log - will fail if duplicate exists due to unique constraint
+	if err := h.db.Create(&webhookLog).Error; err != nil {
+		// Check if it's a duplicate
+		if h.checkDuplicateIntasendWebhook(event.InvoiceID, event.State) {
+			log.Printf("⚠️ Duplicate webhook event detected: InvoiceID=%s, State=%s", event.InvoiceID, event.State)
+			writeJSON(w, http.StatusOK, WebhookEventResponse{
+				Received:  true,
+				Processed: false,
+				Message:   "Duplicate event ignored",
+			})
+			return
+		}
+		// Not a duplicate, some other error
+		log.Printf("❌ Failed to log webhook: %v", err)
 	}
 
 	// Process the webhook based on state
 	success, err := h.processIntasendWebhookSafe(&event)
-	if err != nil {
-		log.Printf("❌ Failed to process webhook (Event: %s): %v", event.ID, err)
-		h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, false, fmt.Sprintf("Processing failed: %v", err), r.RemoteAddr, r.UserAgent())
-		writeJSON(w, http.StatusOK, WebhookEventResponse{
-			Received:  true,
-			Processed: false,
-			Message:   "Webhook received but processing failed - will be retried",
-		})
-		return
-	}
 
-	// Log successful webhook
-	log.Printf("✅ Webhook processed successfully: %s", event.ID)
-	h.logWebhook(models.WebhookIntasend, event.ID, string(body), r.Header, true, "", r.RemoteAddr, r.UserAgent())
+	// Update webhook log status
+	if success {
+		webhookLog.Status = models.WebhookProcessed
+		webhookLog.Success = true
+		log.Printf("✅ Webhook processed successfully: InvoiceID=%s, State=%s", event.InvoiceID, event.State)
+	} else {
+		webhookLog.Status = models.WebhookFailed
+		if err != nil {
+			errMsg := err.Error()
+			webhookLog.ErrorMessage = &errMsg
+			log.Printf("❌ Failed to process webhook (InvoiceID: %s, State: %s): %v", event.InvoiceID, event.State, err)
+		}
+	}
+	h.db.Save(&webhookLog)
 
 	writeJSON(w, http.StatusOK, WebhookEventResponse{
-		Received:  success,
+		Received:  true,
 		Processed: success,
-		Message:   "Webhook processed successfully",
+		Message:   "Webhook processed",
 	})
 }
 
 // processIntasendWebhook processes the Intasend webhook event
 func (h *PaymentHandler) processIntasendWebhook(event *IntasendWebhookEvent) (bool, error) {
 	// Find the payment record by API reference
+	log.Printf("🔍 Looking for payment record with API ref: %s", event.APIRef)
+
 	var paymentRecord models.PaymentRecord
 	if err := h.db.Where("external_reference = ?", event.APIRef).First(&paymentRecord).Error; err != nil {
+		log.Printf("❌ Payment record not found for API ref %s: %v", event.APIRef, err)
+
+		// Debug: Try to find any payment records for this order
+		var count int64
+		h.db.Model(&models.PaymentRecord{}).Where("external_reference LIKE ?", "%"+event.APIRef+"%").Count(&count)
+		log.Printf("📊 Found %d payment records with similar API ref", count)
+
 		return false, fmt.Errorf("payment record not found for API ref %s", event.APIRef)
 	}
+
+	log.Printf("✅ Found payment record: ID=%d, OrderID=%v, Status=%s", paymentRecord.ID, paymentRecord.OrderID, paymentRecord.Status)
 
 	// Update payment record based on state
 	switch event.State {
@@ -244,7 +283,11 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 
 		// Check if already paid
 		if order.Status == models.OrderPaid || order.Status == models.OrderFulfilled {
-			tx.Commit() // Allow duplicate webhook, but don't reprocess
+			log.Printf("ℹ️ Order %d already processed (Status: %s) - skipping duplicate webhook", order.ID, order.Status)
+			if err := tx.Commit().Error; err != nil {
+				return false, fmt.Errorf("failed to commit transaction: %w", err)
+			}
+			committed = true // Mark as committed to prevent rollback in defer
 			return true, nil
 		}
 
@@ -306,12 +349,18 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 	if err := tx.Commit().Error; err != nil {
 		return false, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true // Mark as committed to prevent rollback in defer
 
 	// Track metrics (after successful commit)
 	if h.metrics != nil && paymentRecord.OrderID != nil {
 		// Calculate duration from payment initiation to completion
 		duration := time.Since(paymentRecord.InitiatedAt)
 		h.metrics.TrackPaymentSuccess(event.Provider, "intasend", duration)
+	}
+
+	// Trigger PDF generation and ticket emails after successful commit
+	if paymentRecord.OrderID != nil {
+		go h.generateAndEmailTickets(*paymentRecord.OrderID)
 	}
 
 	return true, nil
@@ -397,10 +446,13 @@ func (h *PaymentHandler) verifyIntasendSignature(payload []byte, signature strin
 	return isValid
 }
 
-// checkDuplicateWebhook checks if we've already processed this webhook event
-func (h *PaymentHandler) checkDuplicateWebhook(eventID string) bool {
+// checkDuplicateIntasendWebhook checks for duplicate Intasend webhooks using invoice_id + state
+func (h *PaymentHandler) checkDuplicateIntasendWebhook(invoiceID, state string) bool {
 	var count int64
-	h.db.Model(&models.WebhookLog{}).Where("event_id = ?", eventID).Count(&count)
+	h.db.Model(&models.WebhookLog{}).
+		Where("provider = ? AND external_reference = ? AND payload LIKE ?",
+			models.WebhookIntasend, invoiceID, "%\"state\": \""+state+"\"%").
+		Count(&count)
 	return count > 0
 }
 
@@ -529,6 +581,210 @@ func (h *PaymentHandler) processIntasendWebhookSafe(event *IntasendWebhookEvent)
 	}()
 
 	return h.processIntasendWebhook(event)
+}
+
+// generateAndEmailTickets generates PDFs and sends ticket emails with the ticketgenerated template
+func (h *PaymentHandler) generateAndEmailTickets(orderID uint) {
+	log.Printf("🎫 Starting ticket generation and email sending for order %d", orderID)
+
+	if h.notificationService == nil {
+		log.Printf("⚠️ Notification service not available, skipping ticket emails for order %d", orderID)
+		return
+	}
+
+	// Load all tickets for this order
+	var tickets []models.Ticket
+	if err := h.db.Preload("OrderItem.TicketClass.Event").
+		Preload("OrderItem.Order").
+		Joins("JOIN order_items ON tickets.order_item_id = order_items.id").
+		Where("order_items.order_id = ?", orderID).
+		Find(&tickets).Error; err != nil {
+		log.Printf("❌ Failed to load tickets for order %d: %v", orderID, err)
+		return
+	}
+
+	if len(tickets) == 0 {
+		log.Printf("⚠️ No tickets found for order %d", orderID)
+		return
+	}
+
+	log.Printf("📧 Found %d tickets for order %d. Generating PDFs and sending emails...", len(tickets), orderID)
+
+	// Import PDF and QR code generators
+	pdfGenerator := h.createPDFGenerator()
+	qrGenerator := h.createQRGenerator()
+
+	// Generate PDFs and send emails for each ticket
+	for i := range tickets {
+		ticket := &tickets[i]
+		event := &ticket.OrderItem.TicketClass.Event
+		order := &ticket.OrderItem.Order
+
+		// Generate PDF with QR code
+		log.Printf("🔄 Generating PDF for ticket %s (Event: %s, Holder: %s)", ticket.TicketNumber, event.Title, ticket.HolderEmail)
+		pdfPath, pdfData, err := h.generateTicketPDFWithQR(ticket, event, order, pdfGenerator, qrGenerator)
+		if err != nil {
+			log.Printf("❌ Failed to generate PDF for ticket %s: %v", ticket.TicketNumber, err)
+		} else {
+			// Update ticket with PDF path
+			h.db.Model(ticket).Update("pdf_path", pdfPath)
+			log.Printf("✅ Generated PDF for ticket %s at %s (size: %d bytes)", ticket.TicketNumber, pdfPath, len(pdfData))
+		}
+
+		// Prepare email with PDF attachment
+		emailData := notifications.EmailData{
+			To:      []string{ticket.HolderEmail},
+			Subject: fmt.Sprintf("Your Ticket for %s", event.Title),
+		}
+
+		// Add PDF attachment if generated successfully
+		if pdfData != nil {
+			emailData.Attachments = []notifications.Attachment{
+				{
+					Filename: fmt.Sprintf("ticket_%s.pdf", ticket.TicketNumber),
+					Content:  pdfData,
+					MimeType: "application/pdf",
+				},
+			}
+			log.Printf("📎 Added PDF attachment (%d bytes) to email", len(pdfData))
+		} else {
+			log.Printf("⚠️ No PDF data available for attachment")
+		}
+
+		emailData.HTMLBody = fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #10B981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
+        .ticket-box { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #10B981; }
+        .button { display: inline-block; background: #10B981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎫 Your Ticket is Confirmed!</h1>
+        </div>
+        <div class="content">
+            <p>Hi <strong>%s</strong>,</p>
+            <p>Great news! Your ticket for <strong>%s</strong> has been confirmed.</p>
+            
+            <div class="ticket-box">
+                <h3>Ticket Details</h3>
+                <p><strong>Event:</strong> %s</p>
+                <p><strong>Date:</strong> %s</p>
+                <p><strong>Location:</strong> %s</p>
+                <p><strong>Ticket Type:</strong> %s</p>
+                <p><strong>Ticket Number:</strong> <code>%s</code></p>
+            </div>
+
+            <p><strong>What's Next?</strong></p>
+            <ul>
+                <li>Save your ticket number: <code>%s</code></li>
+                <li>You can view your ticket anytime in your account</li>
+                <li>Show your ticket at the event entrance</li>
+                <li>Arrive early on event day</li>
+            </ul>
+
+            <p><strong>Important:</strong> Keep your ticket number safe. You'll need it to check in at the event.</p>
+
+            <div class="footer">
+                <p>Questions? Contact support</p>
+                <p>&copy; 2025 Ticketing System. All rights reserved.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`,
+			ticket.HolderName,
+			event.Title,
+			event.Title,
+			event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"),
+			event.Location,
+			ticket.OrderItem.TicketClass.Name,
+			ticket.TicketNumber,
+			ticket.TicketNumber,
+		)
+
+		log.Printf("📤 Sending email to %s with subject: %s", ticket.HolderEmail, emailData.Subject)
+		if err := h.notificationService.GetEmailService().Send(emailData); err != nil {
+			log.Printf("❌ Failed to send ticket email to %s: %v", ticket.HolderEmail, err)
+		} else {
+			log.Printf("✅ Ticket confirmation email sent to %s for ticket %s", ticket.HolderEmail, ticket.TicketNumber)
+		}
+	}
+
+	log.Printf("🎉 Completed ticket generation and email sending for order %d", orderID)
+}
+
+// Helper functions for PDF generation
+
+func (h *PaymentHandler) createPDFGenerator() *pdf.TicketGenerator {
+	return pdf.NewTicketGenerator()
+}
+
+func (h *PaymentHandler) createQRGenerator() *qrcode.Generator {
+	return qrcode.NewGenerator().WithSize(512)
+}
+
+func (h *PaymentHandler) generateTicketPDFWithQR(ticket *models.Ticket, event *models.Event, order *models.Order, pdfGen *pdf.TicketGenerator, qrGen *qrcode.Generator) (string, []byte, error) {
+	// Generate QR code content
+	qrContent := fmt.Sprintf("TICKET:%s|EVENT:%d|ATTENDEE:%s",
+		ticket.TicketNumber,
+		event.ID,
+		ticket.HolderName,
+	)
+
+	// Generate QR code bytes
+	qrBytes, err := qrGen.GenerateBytes(qrContent)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate QR code: %w", err)
+	}
+
+	// Prepare ticket data for PDF
+	ticketData := pdf.TicketData{
+		TicketNumber:  ticket.TicketNumber,
+		EventName:     event.Title,
+		EventDate:     event.StartDate,
+		EventTime:     event.StartDate.Format("3:04 PM"),
+		VenueName:     event.Location,
+		VenueAddress:  event.Location,
+		AttendeeName:  ticket.HolderName,
+		AttendeeEmail: ticket.HolderEmail,
+		TicketType:    ticket.OrderItem.TicketClass.Name,
+		Price:         float64(ticket.OrderItem.UnitPrice) / 100.0,
+		Currency:      string(order.Currency),
+		QRCode:        qrBytes,
+		OrderNumber:   fmt.Sprintf("ORD-%d", order.ID),
+		PurchaseDate:  order.CreatedAt,
+	}
+
+	// Create storage directory
+	storageDir := filepath.Join("storage", "tickets", fmt.Sprintf("%d", order.ID))
+	if err := os.MkdirAll(storageDir, 0755); err != nil {
+		return "", nil, fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	// Generate PDF to file
+	pdfFileName := fmt.Sprintf("ticket_%s.pdf", ticket.TicketNumber)
+	pdfPath := filepath.Join(storageDir, pdfFileName)
+
+	if err := pdfGen.GenerateToFile(ticketData, pdfPath); err != nil {
+		return "", nil, fmt.Errorf("failed to generate PDF: %w", err)
+	}
+
+	// Read PDF bytes for email attachment
+	pdfBytes, err := os.ReadFile(pdfPath)
+	if err != nil {
+		return pdfPath, nil, fmt.Errorf("failed to read PDF: %w", err)
+	}
+
+	return pdfPath, pdfBytes, nil
 }
 
 // STRIPE WEBHOOK HANDLER - COMMENTED OUT FOR FUTURE USE

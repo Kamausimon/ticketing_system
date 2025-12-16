@@ -77,19 +77,21 @@ type IntasendRefundResponse struct {
 }
 
 type IntasendTransactionStatusResponse struct {
-	ID           string  `json:"id"`
-	InvoiceID    string  `json:"invoice_id"`
-	State        string  `json:"state"`
-	Provider     string  `json:"provider"`
-	Charges      float64 `json:"charges"`
-	NetAmount    float64 `json:"net_amount"`
-	Currency     string  `json:"currency"`
-	Value        float64 `json:"value"`
-	Account      string  `json:"account"`
-	APIRef       string  `json:"api_ref"`
-	CreatedAt    string  `json:"created_at"`
-	UpdatedAt    string  `json:"updated_at"`
-	FailedReason string  `json:"failed_reason,omitempty"`
+	Invoice struct {
+		ID           string  `json:"id"`
+		InvoiceID    string  `json:"invoice_id"`
+		State        string  `json:"state"`
+		Provider     string  `json:"provider"`
+		Charges      float64 `json:"charges"`
+		NetAmount    string  `json:"net_amount"` // Can be string or float
+		Currency     string  `json:"currency"`
+		Value        float64 `json:"value"`
+		Account      string  `json:"account"`
+		APIRef       string  `json:"api_ref"`
+		CreatedAt    string  `json:"created_at"`
+		UpdatedAt    string  `json:"updated_at"`
+		FailedReason string  `json:"failed_reason,omitempty"`
+	} `json:"invoice"`
 }
 
 // InitiateMpesaPayment initiates M-Pesa STK Push via Intasend
@@ -171,13 +173,20 @@ func (h *PaymentHandler) InitiateCardPayment(orderID uint, amount int64, email, 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Use the checkout endpoint
 	req, err := http.NewRequest("POST", baseURL+"/checkout/", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+h.IntasendSecretKey)
+	req.Header.Set("X-Intasend-Public-Api-Key", h.IntasendPublishableKey)
+
+	// Debug logging
+	fmt.Printf("🔑 Card Payment Request:\n")
+	fmt.Printf("   URL: %s\n", req.URL.String())
+	fmt.Printf("   Request Body: %s\n", string(jsonData))
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -190,6 +199,9 @@ func (h *PaymentHandler) InitiateCardPayment(orderID uint, amount int64, email, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+
+	fmt.Printf("   Response Status: %d\n", resp.StatusCode)
+	fmt.Printf("   Response Body: %s\n", string(body))
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("intasend API error (status %d): %s", resp.StatusCode, string(body))
@@ -210,7 +222,7 @@ func (h *PaymentHandler) GetIntasendTransactionStatus(transactionID string) (*In
 		baseURL = IntasendSandboxBaseURL
 	}
 
-	// Create request body with invoice_id
+	// Create request body with invoice_id (POST request per Intasend docs)
 	reqBody := map[string]string{
 		"invoice_id": transactionID,
 	}
@@ -219,13 +231,20 @@ func (h *PaymentHandler) GetIntasendTransactionStatus(transactionID string) (*In
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", baseURL+"/payment/status/", bytes.NewBuffer(jsonData))
+	url := baseURL + "/payment/status/"
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("accept", "application/json")
+	req.Header.Set("content-type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+h.IntasendSecretKey)
+
+	fmt.Printf("🔍 Checking transaction status:\n")
+	fmt.Printf("   URL: %s\n", url)
+	fmt.Printf("   Transaction ID: %s\n", transactionID)
+	fmt.Printf("   Request Body: %s\n", string(jsonData))
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -238,6 +257,9 @@ func (h *PaymentHandler) GetIntasendTransactionStatus(transactionID string) (*In
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+
+	fmt.Printf("   Response Status: %d\n", resp.StatusCode)
+	fmt.Printf("   Response Body: %s\n", string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("intasend API error (status %d): %s", resp.StatusCode, string(body))
