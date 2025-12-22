@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/payments"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,15 +13,19 @@ import (
 
 // OrderHandler handles all order-related operations
 type OrderHandler struct {
-	db      *gorm.DB
-	metrics *analytics.PrometheusMetrics
+	db                  *gorm.DB
+	metrics             *analytics.PrometheusMetrics
+	paymentHandler      *payments.PaymentHandler
+	notificationService *notifications.NotificationService
 }
 
 // NewOrderHandler creates a new order handler
-func NewOrderHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics) *OrderHandler {
+func NewOrderHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, paymentHandler *payments.PaymentHandler, notifService *notifications.NotificationService) *OrderHandler {
 	return &OrderHandler{
-		db:      db,
-		metrics: metrics,
+		db:                  db,
+		metrics:             metrics,
+		paymentHandler:      paymentHandler,
+		notificationService: notifService,
 	}
 }
 

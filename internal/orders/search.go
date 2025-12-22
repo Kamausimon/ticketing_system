@@ -25,12 +25,8 @@ func (h *OrderHandler) SearchOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get search query
+	// Get search query (optional - can filter without searching)
 	searchQuery := r.URL.Query().Get("q")
-	if searchQuery == "" {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "search query (q) is required")
-		return
-	}
 
 	// Parse filter parameters
 	filter := parseOrderFilter(r)
@@ -43,12 +39,14 @@ func (h *OrderHandler) SearchOrders(w http.ResponseWriter, r *http.Request) {
 		query = query.Where("account_id = ?", user.AccountID)
 	}
 
-	// Apply search
-	search := "%" + strings.ToLower(searchQuery) + "%"
-	query = query.Where(
-		"LOWER(email) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR CAST(id AS TEXT) LIKE ?",
-		search, search, search, search,
-	)
+	// Apply search if query provided and not wildcard
+	if searchQuery != "" && searchQuery != "*" {
+		search := "%" + strings.ToLower(searchQuery) + "%"
+		query = query.Where(
+			"LOWER(email) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR CAST(id AS TEXT) LIKE ?",
+			search, search, search, search,
+		)
+	}
 
 	// Apply email filter (exact match)
 	if filter.Email != "" {
@@ -130,12 +128,8 @@ func (h *OrderHandler) SearchOrganizerOrders(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Get search query
+	// Get search query (optional - can filter without searching)
 	searchQuery := r.URL.Query().Get("q")
-	if searchQuery == "" {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "search query (q) is required")
-		return
-	}
 
 	// Parse filter parameters
 	filter := parseOrderFilter(r)
@@ -147,12 +141,14 @@ func (h *OrderHandler) SearchOrganizerOrders(w http.ResponseWriter, r *http.Requ
 		Preload("Event").
 		Preload("OrderItems.TicketClass")
 
-	// Apply search
-	search := "%" + strings.ToLower(searchQuery) + "%"
-	query = query.Where(
-		"LOWER(orders.email) LIKE ? OR LOWER(orders.first_name) LIKE ? OR LOWER(orders.last_name) LIKE ? OR CAST(orders.id AS TEXT) LIKE ? OR LOWER(events.title) LIKE ?",
-		search, search, search, search, search,
-	)
+	// Apply search if query provided and not wildcard
+	if searchQuery != "" && searchQuery != "*" {
+		search := "%" + strings.ToLower(searchQuery) + "%"
+		query = query.Where(
+			"LOWER(orders.email) LIKE ? OR LOWER(orders.first_name) LIKE ? OR LOWER(orders.last_name) LIKE ? OR CAST(orders.id AS TEXT) LIKE ? OR LOWER(events.title) LIKE ?",
+			search, search, search, search, search,
+		)
+	}
 
 	// Apply email filter (exact match)
 	if filter.Email != "" {

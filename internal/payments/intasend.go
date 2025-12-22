@@ -293,7 +293,7 @@ func (h *PaymentHandler) InitiateIntasendRefund(transactionID string, amount int
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", baseURL+"/payment/refund/", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", baseURL+"/chargebacks", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

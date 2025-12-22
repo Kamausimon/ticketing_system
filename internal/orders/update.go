@@ -172,6 +172,24 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cancel all tickets for this order
+	// First get the order item IDs
+	var orderItemIDs []uint
+	for _, item := range order.OrderItems {
+		orderItemIDs = append(orderItemIDs, item.ID)
+	}
+
+	// Update tickets status to cancelled
+	if len(orderItemIDs) > 0 {
+		if err := tx.Model(&models.Ticket{}).
+			Where("order_item_id IN ?", orderItemIDs).
+			Update("status", models.TicketCancelled).Error; err != nil {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to cancel tickets")
+			return
+		}
+	}
+
 	// Return tickets to inventory
 	for _, item := range order.OrderItems {
 		var ticketClass models.TicketClass
@@ -271,7 +289,35 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 		refundAmount = float64(order.Amount) // Full refund
 	}
 
-	// Update order
+	// Get payment record with external transaction ID (must be done before updating order)
+	var paymentRecord models.PaymentRecord
+	if err := h.db.Where("order_id = ? AND status = ?", order.ID, models.RecordCompleted).
+		First(&paymentRecord).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "no completed payment found for order")
+		return
+	}
+
+	if paymentRecord.ExternalTransactionID == nil {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "no external transaction ID for refund")
+		return
+	}
+
+	// Initiate refund through Intasend
+	if h.paymentHandler != nil {
+		amountInCents := int64(refundAmount * 100)
+		_, err := h.paymentHandler.InitiateIntasendRefund(
+			*paymentRecord.ExternalTransactionID,
+			amountInCents,
+			req.Reason,
+		)
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError,
+				fmt.Sprintf("failed to initiate refund with payment provider: %v", err))
+			return
+		}
+	}
+
+	// Update order status after successful refund initiation
 	order.Status = models.OrderRefunded
 	amountRefunded := float32(refundAmount)
 	order.AmountRefunded = &amountRefunded
@@ -279,12 +325,30 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 	order.RefundedAt = &now
 
 	if refundAmount < float64(order.Amount) {
+		order.Status = models.OrderPartialRefund
 		order.IsPartiallyRefunded = true
 	}
 
 	if err := h.db.Save(&order).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to process refund")
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to update order after refund")
 		return
+	}
+
+	// Update all tickets for this order to refunded status
+	// First get the order item IDs
+	var orderItemIDs []uint
+	for _, item := range order.OrderItems {
+		orderItemIDs = append(orderItemIDs, item.ID)
+	}
+
+	// Update tickets status to refunded
+	if len(orderItemIDs) > 0 {
+		if err := h.db.Model(&models.Ticket{}).
+			Where("order_item_id IN ?", orderItemIDs).
+			Update("status", models.TicketRefunded).Error; err != nil {
+			// Log error but don't fail the refund
+			fmt.Printf("Warning: Failed to update ticket statuses: %v\n", err)
+		}
 	}
 
 	// Track metrics
@@ -292,7 +356,10 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 		h.metrics.RefundsTotal.WithLabelValues(order.Currency, req.Reason).Add(refundAmount)
 	}
 
-	// TODO: Process actual refund through payment gateway
+	// Send refund notification email to customer
+	if h.notificationService != nil && req.NotifyCustomer {
+		go h.sendRefundNotificationEmail(&order, refundAmount, req.Reason)
+	}
 
 	response := map[string]interface{}{
 		"message":       "Order refunded successfully",
@@ -335,4 +402,41 @@ func isValidStatusTransition(currentStatus, newStatus models.OrderStatus) bool {
 	}
 
 	return false
+}
+
+// sendRefundNotificationEmail sends refund confirmation email to customer
+func (h *OrderHandler) sendRefundNotificationEmail(order *models.Order, refundAmount float64, reason string) {
+	if h.notificationService == nil {
+		return
+	}
+
+	// Prepare email body
+	emailBody := fmt.Sprintf(`
+Dear Customer,
+
+Your refund has been successfully processed.
+
+Order Details:
+- Order ID: #%d
+- Refund Amount: %.2f %s
+- Reason: %s
+- Event: %s
+
+The refund will be credited to your original payment method within 3-5 business days.
+
+If you have any questions, please contact support.
+
+Best regards,
+The Ticketing Team
+`, order.ID, refundAmount, order.Currency, reason, order.Event.Title)
+
+	// Send email
+	if err := h.notificationService.SendPlainEmail(
+		[]string{order.Email},
+		fmt.Sprintf("Refund Processed - Order #%d", order.ID),
+		emailBody,
+	); err != nil {
+		// Log error but don't fail the refund
+		fmt.Printf("Failed to send refund notification email: %v\n", err)
+	}
 }

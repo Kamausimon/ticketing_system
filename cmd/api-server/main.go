@@ -123,7 +123,8 @@ func main() {
 	}
 	eventHandler := events.NewEventHandler(DB, metrics)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
-	orderHandler := orders.NewOrderHandler(DB, metrics)
+	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
+	orderHandler := orders.NewOrderHandler(DB, metrics, paymentHandler, notificationService)
 	var ticketHandler *tickets.TicketHandler
 	if cfg != nil && cfg.Email.Host != "" {
 		notificationService := notifications.NewNotificationService(cfg)
@@ -134,7 +135,6 @@ func main() {
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
 	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
-	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
 	settlementHandler := settlement.NewSettlementHandler(settlementService)
@@ -310,7 +310,9 @@ func main() {
 	router.HandleFunc("/orders/{id}", orderHandler.GetOrderDetails).Methods(http.MethodGet)
 	router.HandleFunc("/orders/{id}/summary", orderHandler.GetOrderSummary).Methods(http.MethodGet)
 
-	// all done above this
+	// Ticket routes - Generation
+	router.Handle("/tickets/generate", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.GenerateTickets))).Methods(http.MethodPost)
+	router.Handle("/tickets/regenerate-qr", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.RegenerateTicketQR))).Methods(http.MethodPost)
 
 	// Order routes - Management - with rate limiting
 	router.HandleFunc("/orders/{id}/status", paymentLimiter.HandlerFunc(orderHandler.UpdateOrderStatus)).Methods(http.MethodPut)
@@ -321,15 +323,17 @@ func main() {
 	router.HandleFunc("/organizers/orders", orderHandler.ListOrganizerOrders).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/orders/search", orderHandler.SearchOrganizerOrders).Methods(http.MethodGet)
 
-	// Ticket routes - Generation
-	router.Handle("/tickets/generate", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.GenerateTickets))).Methods(http.MethodPost)
-	router.Handle("/tickets/regenerate-qr", emailVerificationMiddleware(http.HandlerFunc(ticketHandler.RegenerateTicketQR))).Methods(http.MethodPost)
+	// Payment routes - Admin
+	router.HandleFunc("/admin/payments", apiLimiter.HandlerFunc(paymentHandler.GetAllPayments)).Methods(http.MethodGet)
 
 	// Ticket routes - Viewing
+	// Note: More specific routes must come before parameterized routes
 	router.HandleFunc("/tickets", ticketHandler.ListUserTickets).Methods(http.MethodGet)
-	router.HandleFunc("/tickets/{id}", ticketHandler.GetTicketDetails).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/number", ticketHandler.GetTicketByNumber).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/stats", ticketHandler.GetTicketStats).Methods(http.MethodGet)
+	router.HandleFunc("/tickets/{id}", ticketHandler.GetTicketDetails).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Ticket routes - PDF Download - with rate limiting and email verification
 	router.Handle("/tickets/{id}/pdf", emailVerificationMiddleware(downloadLimiter.HandlerFunc(ticketHandler.DownloadTicketPDF))).Methods(http.MethodGet)
@@ -436,9 +440,6 @@ func main() {
 	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/orders/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetPaymentStatus)).Methods(http.MethodGet)
-
-	// Payment routes - Admin
-	router.HandleFunc("/admin/payments", apiLimiter.HandlerFunc(paymentHandler.GetAllPayments)).Methods(http.MethodGet)
 
 	// Payment routes - Methods (Saved payment methods) - with rate limiting
 	router.HandleFunc("/payments/methods", paymentLimiter.HandlerFunc(paymentHandler.SavePaymentMethod)).Methods(http.MethodPost)

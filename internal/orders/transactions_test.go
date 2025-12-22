@@ -94,7 +94,7 @@ func createTestData(t *testing.T, db *gorm.DB) (uint, uint, uint) {
 // TestProcessPaymentWithTickets_Success tests successful atomic transaction
 func TestProcessPaymentWithTickets_Success(t *testing.T) {
 	db := setupTestDB(t)
-	handler := NewOrderHandler(db, nil)
+	handler := NewOrderHandler(db, nil, nil, nil)
 
 	accountID, eventID, ticketClassID := createTestData(t, db)
 
@@ -162,7 +162,7 @@ func TestProcessPaymentWithTickets_Success(t *testing.T) {
 // TestProcessPaymentWithTickets_OrderNotPending tests validation
 func TestProcessPaymentWithTickets_OrderNotPending(t *testing.T) {
 	db := setupTestDB(t)
-	handler := NewOrderHandler(db, nil)
+	handler := NewOrderHandler(db, nil, nil, nil)
 
 	accountID, eventID, _ticketClassID := createTestData(t, db)
 	_ = _ticketClassID // Unused
@@ -195,7 +195,7 @@ func TestProcessPaymentWithTickets_OrderNotPending(t *testing.T) {
 // This test verifies transaction behavior when the order doesn't have properly loaded relations
 func TestProcessPaymentWithTickets_RollbackOnTicketFailure(t *testing.T) {
 	db := setupTestDB(t)
-	handler := NewOrderHandler(db, nil)
+	handler := NewOrderHandler(db, nil, nil, nil)
 
 	accountID, eventID, _ := createTestData(t, db)
 
@@ -265,7 +265,7 @@ func TestProcessPaymentWithTickets_RollbackOnTicketFailure(t *testing.T) {
 // TestProcessPaymentWithTickets_DuplicateCall tests idempotency
 func TestProcessPaymentWithTickets_DuplicateCall(t *testing.T) {
 	db := setupTestDB(t)
-	handler := NewOrderHandler(db, nil)
+	handler := NewOrderHandler(db, nil, nil, nil)
 
 	accountID, eventID, ticketClassID := createTestData(t, db)
 
@@ -318,7 +318,7 @@ func TestProcessPaymentWithTickets_DuplicateCall(t *testing.T) {
 // TestRollbackPayment tests manual payment rollback
 func TestRollbackPayment(t *testing.T) {
 	db := setupTestDB(t)
-	handler := NewOrderHandler(db, nil)
+	handler := NewOrderHandler(db, nil, nil, nil)
 
 	accountID, eventID, ticketClassID := createTestData(t, db)
 
@@ -386,7 +386,7 @@ func TestRollbackPayment(t *testing.T) {
 // TestConcurrentPaymentProcessing tests race conditions
 func TestConcurrentPaymentProcessing(t *testing.T) {
 	db := setupTestDB(t)
-	handler := NewOrderHandler(db, nil)
+	handler := NewOrderHandler(db, nil, nil, nil)
 
 	accountID, eventID, ticketClassID := createTestData(t, db)
 
