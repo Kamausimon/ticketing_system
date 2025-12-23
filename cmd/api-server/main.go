@@ -333,8 +333,6 @@ func main() {
 	router.HandleFunc("/tickets/stats", ticketHandler.GetTicketStats).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/{id}", ticketHandler.GetTicketDetails).Methods(http.MethodGet)
 
-	// all done above this
-
 	// Ticket routes - PDF Download - with rate limiting and email verification
 	router.Handle("/tickets/{id}/pdf", emailVerificationMiddleware(downloadLimiter.HandlerFunc(ticketHandler.DownloadTicketPDF))).Methods(http.MethodGet)
 
@@ -351,6 +349,8 @@ func main() {
 	router.HandleFunc("/tickets/checkin/bulk", ticketHandler.BulkCheckIn).Methods(http.MethodPost)
 	router.HandleFunc("/tickets/checkin/undo", ticketHandler.UndoCheckIn).Methods(http.MethodPost)
 	router.HandleFunc("/tickets/checkin/stats", ticketHandler.GetCheckInStats).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Ticket routes - Bulk Operations
 	router.HandleFunc("/tickets/bulk/export", ticketHandler.BulkExportTickets).Methods(http.MethodPost)

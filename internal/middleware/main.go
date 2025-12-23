@@ -89,7 +89,7 @@ func RequireEmailVerification(db *gorm.DB) func(http.Handler) http.Handler {
 
 			// Check if user's email is verified
 			var emailVerified bool
-			result := db.Model(&struct{}{}).
+			result := db.Table("users").
 				Select("email_verified").
 				Where("id = ?", userID).
 				Row().
