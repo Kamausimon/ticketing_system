@@ -355,8 +355,6 @@ func main() {
 	router.HandleFunc("/tickets/bulk/stats", ticketHandler.GetBulkTicketStats).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/bulk/status", ticketHandler.BulkUpdateTicketStatus).Methods(http.MethodPost)
 
-	// all done above this
-
 	// Ticket routes - Event tickets (Organizer only)
 	router.HandleFunc("/organizers/tickets", ticketHandler.ListEventTickets).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/tickets/filter", ticketHandler.FilterEventTicketsAdvanced).Methods(http.MethodGet)
@@ -369,6 +367,8 @@ func main() {
 	router.HandleFunc("/promotions/{id}", promotionHandler.UpdatePromotion).Methods(http.MethodPut)
 	router.HandleFunc("/promotions/{id}", promotionHandler.DeletePromotion).Methods(http.MethodDelete)
 	router.HandleFunc("/promotions/{id}/clone", promotionHandler.ClonePromotion).Methods(http.MethodPost)
+
+	// all done above this
 
 	// Promotion routes - Status Management
 	router.HandleFunc("/promotions/{id}/activate", promotionHandler.ActivatePromotion).Methods(http.MethodPost)

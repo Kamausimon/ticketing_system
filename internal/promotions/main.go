@@ -83,6 +83,8 @@ type CreatePromotionRequest struct {
 	MaximumDiscount    *int64                 `json:"maximum_discount,omitempty"` // in cents
 	EventID            *uint                  `json:"event_id,omitempty"`
 	OrganizerID        *uint                  `json:"organizer_id,omitempty"`
+	TicketClassIDs     []uint                 `json:"ticket_class_ids,omitempty"` // For specific_ticket target
+	EventCategories    []string               `json:"event_categories,omitempty"` // For category target
 	StartDate          time.Time              `json:"start_date"`
 	EndDate            time.Time              `json:"end_date"`
 	EarlyBirdCutoff    *time.Time             `json:"early_bird_cutoff,omitempty"`

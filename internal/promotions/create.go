@@ -104,6 +104,26 @@ func (h *PromotionHandler) CreatePromotion(w http.ResponseWriter, r *http.Reques
 		promotion.FreeQuantity = req.FreeQuantity
 	}
 
+	// Handle ticket class IDs (store as JSON)
+	if len(req.TicketClassIDs) > 0 {
+		ticketClassJSON, err := json.Marshal(req.TicketClassIDs)
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to process ticket class IDs")
+			return
+		}
+		promotion.TicketClassIDs = string(ticketClassJSON)
+	}
+
+	// Handle event categories (store as JSON)
+	if len(req.EventCategories) > 0 {
+		categoriesJSON, err := json.Marshal(req.EventCategories)
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to process event categories")
+			return
+		}
+		promotion.EventCategories = string(categoriesJSON)
+	}
+
 	// Set unlimited flag
 	if req.UsageLimit == nil {
 		promotion.IsUnlimited = true
@@ -234,6 +254,22 @@ func validateCreatePromotionRequest(req *CreatePromotionRequest) error {
 
 	if req.Target == "" {
 		return fmt.Errorf("target is required")
+	}
+
+	// Validate target-specific requirements
+	switch req.Target {
+	case models.TargetSpecificTicket:
+		if len(req.TicketClassIDs) == 0 {
+			return fmt.Errorf("ticket_class_ids is required when target is 'specific_ticket'")
+		}
+	case models.TargetCategory:
+		if len(req.EventCategories) == 0 {
+			return fmt.Errorf("event_categories is required when target is 'category'")
+		}
+	case models.TargetEvent:
+		if req.EventID == nil {
+			return fmt.Errorf("event_id is required when target is 'event'")
+		}
 	}
 
 	// Validate discount configuration based on type
