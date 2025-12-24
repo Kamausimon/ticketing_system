@@ -360,6 +360,11 @@ func main() {
 	router.HandleFunc("/organizers/tickets/filter", ticketHandler.FilterEventTicketsAdvanced).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/tickets/search", ticketHandler.SearchEventTickets).Methods(http.MethodGet)
 
+	// Promotion routes - Listing & Search
+	router.HandleFunc("/promotions", promotionHandler.ListPromotions).Methods(http.MethodGet)
+	router.HandleFunc("/promotions/active", promotionHandler.ListActivePromotions).Methods(http.MethodGet)
+	router.HandleFunc("/promotions/search", promotionHandler.SearchPromotions).Methods(http.MethodGet)
+
 	// Promotion routes - Creation & Management
 	router.HandleFunc("/promotions", promotionHandler.CreatePromotion).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}", promotionHandler.GetPromotionDetails).Methods(http.MethodGet)
@@ -368,25 +373,18 @@ func main() {
 	router.HandleFunc("/promotions/{id}", promotionHandler.DeletePromotion).Methods(http.MethodDelete)
 	router.HandleFunc("/promotions/{id}/clone", promotionHandler.ClonePromotion).Methods(http.MethodPost)
 
-	// all done above this
-
 	// Promotion routes - Status Management
 	router.HandleFunc("/promotions/{id}/activate", promotionHandler.ActivatePromotion).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}/pause", promotionHandler.PausePromotion).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}/deactivate", promotionHandler.DeactivatePromotion).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}/extend", promotionHandler.ExtendPromotionDate).Methods(http.MethodPost)
 
-	// Promotion routes - Listing & Search
-	router.HandleFunc("/promotions", promotionHandler.ListPromotions).Methods(http.MethodGet)
-	router.HandleFunc("/promotions/active", promotionHandler.ListActivePromotions).Methods(http.MethodGet)
-	router.HandleFunc("/promotions/search", promotionHandler.SearchPromotions).Methods(http.MethodGet)
-
 	// Promotion routes - Validation & Usage
 	router.HandleFunc("/promotions/validate", promotionHandler.ValidatePromotionCode).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/eligibility", promotionHandler.CheckPromotionEligibility).Methods(http.MethodPost)
+	router.HandleFunc("/promotions/usage/revoke", promotionHandler.RevokePromotionUsage).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}/usage", promotionHandler.GetPromotionUsage).Methods(http.MethodGet)
 	router.HandleFunc("/promotions/{id}/usage", promotionHandler.RecordPromotionUsage).Methods(http.MethodPost)
-	router.HandleFunc("/promotions/usage/revoke", promotionHandler.RevokePromotionUsage).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}/usage/details", promotionHandler.GetPromotionUsageDetails).Methods(http.MethodGet)
 
 	// Promotion routes - Analytics
@@ -399,6 +397,8 @@ func main() {
 	// Promotion routes - Organizer
 	router.HandleFunc("/organizers/promotions", promotionHandler.ListOrganizerPromotions).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/promotions/stats", promotionHandler.GetOrganizerPromotionStats).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Inventory routes - Availability - with rate limiting
 	router.HandleFunc("/inventory/tickets/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetTicketAvailability)).Methods(http.MethodGet)
@@ -432,8 +432,6 @@ func main() {
 	router.HandleFunc("/inventory/reservations/convert", paymentLimiter.HandlerFunc(inventoryHandler.ConvertReservationToOrder)).Methods(http.MethodPost)
 	router.HandleFunc("/inventory/reservations/session", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseSessionReservations)).Methods(http.MethodDelete)
 	router.HandleFunc("/inventory/events/{id}/reservations", apiLimiter.HandlerFunc(inventoryHandler.GetReservationsByEvent)).Methods(http.MethodGet)
-
-	//upto here
 
 	// Payment routes - Processing - with rate limiting
 	router.HandleFunc("/payments/initiate", paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment)).Methods(http.MethodPost)

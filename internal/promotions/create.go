@@ -64,6 +64,25 @@ func (h *PromotionHandler) CreatePromotion(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Get or determine organizer_id
+	organizerID := req.OrganizerID
+	if organizerID == nil {
+		// Look up organizer record for this user's account
+		var organizer models.Organizer
+		if err := h.db.Where("account_id = ?", user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "organizer profile not found for this account")
+			return
+		}
+		organizerID = &organizer.ID
+	}
+
+	// Verify organizer exists and matches user's account
+	var organizer models.Organizer
+	if err := h.db.Where("id = ? AND account_id = ?", *organizerID, user.AccountID).First(&organizer).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusForbidden, "invalid organizer")
+		return
+	}
+
 	// Create promotion
 	promotion := models.Promotion{
 		Code:               code,
@@ -74,7 +93,7 @@ func (h *PromotionHandler) CreatePromotion(w http.ResponseWriter, r *http.Reques
 		Target:             req.Target,
 		DiscountPercentage: req.DiscountPercentage,
 		EventID:            req.EventID,
-		OrganizerID:        req.OrganizerID,
+		OrganizerID:        organizerID,
 		StartDate:          req.StartDate,
 		EndDate:            req.EndDate,
 		EarlyBirdCutoff:    req.EarlyBirdCutoff,
@@ -256,6 +275,11 @@ func validateCreatePromotionRequest(req *CreatePromotionRequest) error {
 		return fmt.Errorf("target is required")
 	}
 
+	// Event ID is always required
+	if req.EventID == nil {
+		return fmt.Errorf("event_id is required")
+	}
+
 	// Validate target-specific requirements
 	switch req.Target {
 	case models.TargetSpecificTicket:
@@ -265,10 +289,6 @@ func validateCreatePromotionRequest(req *CreatePromotionRequest) error {
 	case models.TargetCategory:
 		if len(req.EventCategories) == 0 {
 			return fmt.Errorf("event_categories is required when target is 'category'")
-		}
-	case models.TargetEvent:
-		if req.EventID == nil {
-			return fmt.Errorf("event_id is required when target is 'event'")
 		}
 	}
 
@@ -306,11 +326,6 @@ func validateCreatePromotionRequest(req *CreatePromotionRequest) error {
 	}
 	if req.EndDate.Before(req.StartDate) {
 		return fmt.Errorf("end_date must be after start_date")
-	}
-
-	// Validate target-specific requirements
-	if req.Target == models.TargetEvent && req.EventID == nil {
-		return fmt.Errorf("event_id is required for event target")
 	}
 
 	return nil

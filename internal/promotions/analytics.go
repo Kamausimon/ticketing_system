@@ -44,9 +44,12 @@ func (h *PromotionHandler) GetPromotionAnalytics(w http.ResponseWriter, r *http.
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Get unique users count
@@ -125,9 +128,12 @@ func (h *PromotionHandler) GetPromotionROI(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Calculate ROI
@@ -140,8 +146,10 @@ func (h *PromotionHandler) GetPromotionROI(w http.ResponseWriter, r *http.Reques
 
 	// Calculate cost per acquisition
 	costPerAcquisition := 0.0
+	averageDiscount := 0.0
 	if promotion.UsageCount > 0 {
 		costPerAcquisition = float64(promotion.TotalDiscount) / float64(promotion.UsageCount)
+		averageDiscount = float64(promotion.TotalDiscount) / float64(promotion.UsageCount)
 	}
 
 	response := map[string]interface{}{
@@ -153,7 +161,7 @@ func (h *PromotionHandler) GetPromotionROI(w http.ResponseWriter, r *http.Reques
 		"roi_percentage":       roi,
 		"usage_count":          promotion.UsageCount,
 		"cost_per_acquisition": costPerAcquisition,
-		"average_discount":     float64(promotion.TotalDiscount) / float64(promotion.UsageCount),
+		"average_discount":     averageDiscount,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -192,9 +200,12 @@ func (h *PromotionHandler) GetConversionMetrics(w http.ResponseWriter, r *http.R
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Get unique users
@@ -255,9 +266,12 @@ func (h *PromotionHandler) GetRevenueImpact(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Calculate metrics
@@ -268,6 +282,11 @@ func (h *PromotionHandler) GetRevenueImpact(w http.ResponseWriter, r *http.Reque
 		discountRate = (float64(promotion.TotalDiscount) / float64(revenueWithoutPromo)) * 100
 	}
 
+	averageDiscountPerOrder := 0.0
+	if promotion.UsageCount > 0 {
+		averageDiscountPerOrder = float64(promotion.TotalDiscount) / float64(promotion.UsageCount)
+	}
+
 	response := map[string]interface{}{
 		"promotion_id":               promotion.ID,
 		"code":                       promotion.Code,
@@ -276,7 +295,7 @@ func (h *PromotionHandler) GetRevenueImpact(w http.ResponseWriter, r *http.Reque
 		"total_discount":             promotion.TotalDiscount,
 		"discount_rate":              discountRate,
 		"net_revenue_impact":         revenueWithPromo,
-		"average_discount_per_order": float64(promotion.TotalDiscount) / float64(promotion.UsageCount),
+		"average_discount_per_order": averageDiscountPerOrder,
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -299,17 +318,24 @@ func (h *PromotionHandler) GetOrganizerPromotionStats(w http.ResponseWriter, r *
 		return
 	}
 
+	// Get organizer record for this user's account
+	var organizer models.Organizer
+	if err := h.db.Where("account_id = ?", user.AccountID).First(&organizer).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusNotFound, "organizer profile not found")
+		return
+	}
+
 	// Count promotions by status
 	var totalPromotions, activePromotions, expiredPromotions int64
-	h.db.Model(&models.Promotion{}).Where("organizer_id = ?", user.AccountID).Count(&totalPromotions)
-	h.db.Model(&models.Promotion{}).Where("organizer_id = ? AND status = ?", user.AccountID, models.PromotionActive).Count(&activePromotions)
-	h.db.Model(&models.Promotion{}).Where("organizer_id = ? AND status = ?", user.AccountID, models.PromotionExpired).Count(&expiredPromotions)
+	h.db.Model(&models.Promotion{}).Where("organizer_id = ?", organizer.ID).Count(&totalPromotions)
+	h.db.Model(&models.Promotion{}).Where("organizer_id = ? AND status = ?", organizer.ID, models.PromotionActive).Count(&activePromotions)
+	h.db.Model(&models.Promotion{}).Where("organizer_id = ? AND status = ?", organizer.ID, models.PromotionExpired).Count(&expiredPromotions)
 
 	// Get total usage
 	var totalUsage int64
 	h.db.Model(&models.PromotionUsage{}).
 		Joins("JOIN promotions ON promotions.id = promotion_usages.promotion_id").
-		Where("promotions.organizer_id = ?", user.AccountID).
+		Where("promotions.organizer_id = ?", organizer.ID).
 		Count(&totalUsage)
 
 	// Get revenue and discount totals
@@ -319,7 +345,7 @@ func (h *PromotionHandler) GetOrganizerPromotionStats(w http.ResponseWriter, r *
 	}
 	h.db.Model(&models.Promotion{}).
 		Select("SUM(total_revenue) as total_revenue, SUM(total_discount) as total_discount").
-		Where("organizer_id = ?", user.AccountID).
+		Where("organizer_id = ?", organizer.ID).
 		Scan(&stats)
 
 	// Calculate averages

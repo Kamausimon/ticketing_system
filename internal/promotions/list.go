@@ -123,9 +123,12 @@ func (h *PromotionHandler) ListActivePromotions(w http.ResponseWriter, r *http.R
 	}
 
 	// Calculate total pages
-	totalPages := int(totalCount) / filter.Limit
-	if int(totalCount)%filter.Limit > 0 {
-		totalPages++
+	totalPages := 0
+	if filter.Limit > 0 {
+		totalPages = int(totalCount) / filter.Limit
+		if int(totalCount)%filter.Limit > 0 {
+			totalPages++
+		}
 	}
 
 	response := PromotionListResponse{
@@ -158,12 +161,12 @@ func (h *PromotionHandler) ListOrganizerPromotions(w http.ResponseWriter, r *htt
 
 	// Parse filters
 	filter := parsePromotionFilter(r)
-	filter.OrganizerID = &user.AccountID
 
-	// Build query
+	// Build query - join with organizers table to filter by account_id
 	query := h.db.Model(&models.Promotion{}).
 		Preload("Event").Preload("Organizer").
-		Where("organizer_id = ?", user.AccountID)
+		Joins("JOIN organizers ON organizers.id = promotions.organizer_id").
+		Where("organizers.account_id = ?", user.AccountID)
 
 	// Apply filters
 	query = applyPromotionFilters(query, filter)
@@ -190,9 +193,12 @@ func (h *PromotionHandler) ListOrganizerPromotions(w http.ResponseWriter, r *htt
 	}
 
 	// Calculate total pages
-	totalPages := int(totalCount) / filter.Limit
-	if int(totalCount)%filter.Limit > 0 {
-		totalPages++
+	totalPages := 0
+	if filter.Limit > 0 {
+		totalPages = int(totalCount) / filter.Limit
+		if int(totalCount)%filter.Limit > 0 {
+			totalPages++
+		}
 	}
 
 	response := PromotionListResponse{
@@ -256,9 +262,12 @@ func (h *PromotionHandler) SearchPromotions(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Calculate total pages
-	totalPages := int(totalCount) / filter.Limit
-	if int(totalCount)%filter.Limit > 0 {
-		totalPages++
+	totalPages := 0
+	if filter.Limit > 0 {
+		totalPages = int(totalCount) / filter.Limit
+		if int(totalCount)%filter.Limit > 0 {
+			totalPages++
+		}
 	}
 
 	response := PromotionListResponse{

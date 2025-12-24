@@ -46,9 +46,13 @@ func (h *PromotionHandler) GetPromotionDetails(w http.ResponseWriter, r *http.Re
 	// Check if user can view this promotion
 	// If promotion is not public and user is not the owner, deny access
 	if !promotion.IsPublic {
-		if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-			return
+		if promotion.OrganizerID != nil {
+			// Check if organizer's account_id matches user's account_id
+			var organizer models.Organizer
+			if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+				middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+				return
+			}
 		}
 	}
 
@@ -90,9 +94,13 @@ func (h *PromotionHandler) GetPromotionByCode(w http.ResponseWriter, r *http.Req
 			return
 		}
 
-		if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-			return
+		if promotion.OrganizerID != nil {
+			// Check if organizer's account_id matches user's account_id
+			var organizer models.Organizer
+			if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+				middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+				return
+			}
 		}
 	}
 
@@ -133,9 +141,13 @@ func (h *PromotionHandler) GetPromotionUsageDetails(w http.ResponseWriter, r *ht
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		// Check if organizer's account_id matches user's account_id
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Parse pagination
@@ -234,9 +246,13 @@ func (h *PromotionHandler) DeletePromotion(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Verify ownership
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		// Check if organizer's account_id matches user's account_id
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Can't delete if it has been used

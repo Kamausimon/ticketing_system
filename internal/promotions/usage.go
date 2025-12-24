@@ -173,9 +173,12 @@ func (h *PromotionHandler) GetPromotionUsage(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Parse pagination
@@ -274,9 +277,12 @@ func (h *PromotionHandler) GetPromotionStats(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Check authorization
-	if promotion.OrganizerID != nil && *promotion.OrganizerID != user.AccountID {
-		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
-		return
+	if promotion.OrganizerID != nil {
+		var organizer models.Organizer
+		if err := h.db.Where("id = ? AND account_id = ?", *promotion.OrganizerID, user.AccountID).First(&organizer).Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	// Get unique users count
