@@ -74,8 +74,8 @@ func (h *TicketHandler) BulkExportTickets(w http.ResponseWriter, r *http.Request
 	// Build query for tickets
 	query := h.db.Model(&models.Ticket{}).
 		Preload("OrderItem.TicketClass").
-		Preload("OrderItem.Order.User").
-		Preload("Attendee").
+		Preload("OrderItem.Order").
+		Preload("TransferHistory").
 		Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
 		Joins("JOIN orders ON orders.id = order_items.order_id").
 		Where("orders.event_id = ?", req.EventID)
@@ -100,8 +100,13 @@ func (h *TicketHandler) BulkExportTickets(w http.ResponseWriter, r *http.Request
 				query = query.Where("tickets.checked_in_at IS NULL")
 			}
 		}
-		// IsTransferred filter not supported (no transfer tracking field in current model)
-		_ = req.Filters.IsTransferred
+		if req.Filters.IsTransferred != nil {
+			if *req.Filters.IsTransferred {
+				query = query.Where("EXISTS (SELECT 1 FROM ticket_transfer_histories WHERE ticket_transfer_histories.ticket_id = tickets.id)")
+			} else {
+				query = query.Where("NOT EXISTS (SELECT 1 FROM ticket_transfer_histories WHERE ticket_transfer_histories.ticket_id = tickets.id)")
+			}
+		}
 		if req.Filters.IsRefunded != nil {
 			if *req.Filters.IsRefunded {
 				query = query.Where("tickets.status = ?", models.TicketRefunded)
@@ -208,8 +213,8 @@ func (h *TicketHandler) exportTicketsCSV(w http.ResponseWriter, tickets []models
 		// Calculate boolean fields
 		isCheckedIn := ticket.CheckedInAt != nil
 		isRefunded := ticket.Status == models.TicketRefunded
-		// Note: We don't have a transfer tracking field, so assume false
-		isTransferred := false
+		// Check if ticket has transfer history (using preloaded data)
+		isTransferred := len(ticket.TransferHistory) > 0
 
 		row := []string{
 			strconv.Itoa(int(ticket.ID)),
@@ -260,7 +265,8 @@ func (h *TicketHandler) exportTicketsJSON(w http.ResponseWriter, tickets []model
 	for i, ticket := range tickets {
 		isCheckedIn := ticket.CheckedInAt != nil
 		isRefunded := ticket.Status == models.TicketRefunded
-		isTransferred := false // No transfer tracking field
+		// Check if ticket has transfer history (using preloaded data)
+		isTransferred := len(ticket.TransferHistory) > 0
 
 		export := TicketExport{
 			ID:            ticket.ID,
@@ -388,8 +394,14 @@ func (h *TicketHandler) GetBulkTicketStats(w http.ResponseWriter, r *http.Reques
 		Count(&used)
 	stats.UsedTickets = int(used)
 
-	// Note: We don't have a transfer tracking field, so count as 0
-	stats.TransferredTickets = 0
+	// Count transferred tickets (tickets with transfer history)
+	var transferred int64
+	h.db.Table("tickets").
+		Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
+		Joins("JOIN orders ON orders.id = order_items.order_id").
+		Where("orders.event_id = ? AND EXISTS (SELECT 1 FROM ticket_transfer_histories WHERE ticket_transfer_histories.ticket_id = tickets.id)", eventID).
+		Count(&transferred)
+	stats.TransferredTickets = int(transferred)
 
 	var refunded, checkedIn int64
 	h.db.Model(&models.Ticket{}).
@@ -458,8 +470,9 @@ func (h *TicketHandler) GetBulkTicketStats(w http.ResponseWriter, r *http.Reques
 
 // BulkUpdateTicketStatus updates the status of multiple tickets
 type BulkUpdateTicketStatusRequest struct {
-	TicketIDs []uint `json:"ticket_ids"`
-	Status    string `json:"status"` // "active", "used", "cancelled"
+	TicketIDs     []uint   `json:"ticket_ids,omitempty"`
+	TicketNumbers []string `json:"ticket_numbers,omitempty"`
+	Status        string   `json:"status"` // "active", "used", "cancelled"
 }
 
 // BulkUpdateTicketStatus updates the status of multiple tickets
@@ -480,8 +493,8 @@ func (h *TicketHandler) BulkUpdateTicketStatus(w http.ResponseWriter, r *http.Re
 	}
 
 	// Validate input
-	if len(req.TicketIDs) == 0 {
-		middleware.WriteJSONError(w, http.StatusBadRequest, "ticket_ids is required")
+	if len(req.TicketIDs) == 0 && len(req.TicketNumbers) == 0 {
+		middleware.WriteJSONError(w, http.StatusBadRequest, "ticket_ids or ticket_numbers is required")
 		return
 	}
 
@@ -498,26 +511,39 @@ func (h *TicketHandler) BulkUpdateTicketStatus(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// Get tickets and verify ownership
+	// Build query based on whether we have IDs or ticket numbers
 	var tickets []models.Ticket
-	if err := h.db.Preload("OrderItem.Order.Event").
-		Where("id IN ?", req.TicketIDs).
-		Find(&tickets).Error; err != nil {
+	query := h.db.Preload("OrderItem.Order.Event")
+
+	if len(req.TicketIDs) > 0 {
+		query = query.Where("id IN ?", req.TicketIDs)
+	} else {
+		query = query.Where("ticket_number IN ?", req.TicketNumbers)
+	}
+
+	if err := query.Find(&tickets).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch tickets")
 		return
 	}
 
+	if len(tickets) == 0 {
+		middleware.WriteJSONError(w, http.StatusNotFound, "no tickets found")
+		return
+	}
+
 	// Verify all tickets belong to events owned by the user
+	ticketIDs := make([]uint, 0, len(tickets))
 	for _, ticket := range tickets {
 		if ticket.OrderItem.Order.Event.AccountID != user.AccountID {
 			middleware.WriteJSONError(w, http.StatusForbidden, "access denied to one or more tickets")
 			return
 		}
+		ticketIDs = append(ticketIDs, ticket.ID)
 	}
 
 	// Update ticket statuses
 	result := h.db.Model(&models.Ticket{}).
-		Where("id IN ?", req.TicketIDs).
+		Where("id IN ?", ticketIDs).
 		Update("status", req.Status)
 
 	if result.Error != nil {

@@ -17,17 +17,18 @@ const (
 
 type Ticket struct {
 	gorm.Model
-	OrderItemID  uint      `gorm:"not null;index"`
-	OrderItem    OrderItem `gorm:"foreignKey:OrderItemID"`
-	TicketNumber string    `gorm:"unique;not null"`
-	QRCode       string    `gorm:"unique"`
-	BarcodeData  string
-	HolderName   string
-	HolderEmail  string
-	Status       TicketStatus `gorm:"default:'active'"`
-	CheckedInAt  *time.Time
-	CheckedInBy  *uint
-	UsedAt       *time.Time
-	RefundedAt   *time.Time
-	PdfPath      *string
+	OrderItemID     uint      `gorm:"not null;index"`
+	OrderItem       OrderItem `gorm:"foreignKey:OrderItemID"`
+	TicketNumber    string    `gorm:"unique;not null"`
+	QRCode          string    `gorm:"unique"`
+	BarcodeData     string
+	HolderName      string
+	HolderEmail     string
+	Status          TicketStatus `gorm:"default:'active'"`
+	CheckedInAt     *time.Time
+	CheckedInBy     *uint
+	UsedAt          *time.Time
+	RefundedAt      *time.Time
+	PdfPath         *string
+	TransferHistory []TicketTransferHistory `gorm:"foreignKey:TicketID"`
 }
