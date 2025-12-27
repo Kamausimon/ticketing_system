@@ -398,8 +398,6 @@ func main() {
 	router.HandleFunc("/organizers/promotions", promotionHandler.ListOrganizerPromotions).Methods(http.MethodGet)
 	router.HandleFunc("/organizers/promotions/stats", promotionHandler.GetOrganizerPromotionStats).Methods(http.MethodGet)
 
-	// all done above this
-
 	// Inventory routes - Availability - with rate limiting
 	router.HandleFunc("/inventory/tickets/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetTicketAvailability)).Methods(http.MethodGet)
 	router.HandleFunc("/inventory/events/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetEventInventory)).Methods(http.MethodGet)
@@ -410,6 +408,8 @@ func main() {
 	router.HandleFunc("/inventory/capacity/tickets/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetTicketClassCapacity)).Methods(http.MethodGet)
 	router.HandleFunc("/inventory/capacity/events/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetEventCapacity)).Methods(http.MethodGet)
 	router.HandleFunc("/inventory/capacity/events/{id}/monitor", apiLimiter.HandlerFunc(inventoryHandler.MonitorCapacity)).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Inventory routes - Waitlist - with rate limiting
 	router.HandleFunc("/inventory/waitlist", inventoryLimiter.HandlerFunc(inventoryHandler.JoinWaitlist)).Methods(http.MethodPost)
