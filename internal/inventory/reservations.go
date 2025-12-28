@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -31,10 +32,14 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Quantity must be greater than 0")
 		return
 	}
-	if req.SessionID == "" {
-		writeError(w, http.StatusBadRequest, "Session ID is required")
+
+	// Get session ID from header
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	sessionID := fmt.Sprintf("user_%d", userID)
 
 	// Start transaction
 	tx := h.db.Begin()
@@ -86,7 +91,7 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 	// Check if session already has a reservation for this ticket class
 	var existingReservation models.ReservedTicket
 	if err := tx.Where("ticket_id = ? AND session_id = ? AND expires > ?",
-		req.TicketClassID, req.SessionID, time.Now()).
+		req.TicketClassID, sessionID, time.Now()).
 		First(&existingReservation).Error; err == nil {
 		// Update existing reservation
 		existingReservation.QuantityReserved = req.Quantity
@@ -114,7 +119,7 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 		TicketID:         req.TicketClassID,
 		EventID:          ticketClass.EventID,
 		QuantityReserved: req.Quantity,
-		SessionID:        req.SessionID,
+		SessionID:        sessionID,
 		Expires:          time.Now().Add(DefaultReservationDuration),
 	}
 
@@ -165,11 +170,12 @@ func (h *InventoryHandler) GetReservation(w http.ResponseWriter, r *http.Request
 
 // ListUserReservations lists all active reservations for a session
 func (h *InventoryHandler) ListUserReservations(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("session_id")
-	if sessionID == "" {
-		writeError(w, http.StatusBadRequest, "Session ID is required")
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	sessionID := fmt.Sprintf("user_%d", userID)
 
 	var reservations []models.ReservedTicket
 	query := h.db.Where("session_id = ? AND expires > ?", sessionID, time.Now())

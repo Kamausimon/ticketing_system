@@ -3,8 +3,10 @@ package inventory
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
+	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"
 
@@ -73,6 +75,54 @@ func (h *InventoryHandler) ReleaseExpiredReservations(w http.ResponseWriter, r *
 		ReservationIDs: reservationIDs,
 		CleanedAt:      time.Now(),
 	})
+}
+
+// StartReservationCleanup starts a background goroutine that automatically cleans up expired reservations
+func (h *InventoryHandler) StartReservationCleanup() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute) // Check every minute
+		defer ticker.Stop()
+
+		log.Println("🧹 Reservation cleanup background job started")
+
+		for range ticker.C {
+			var expiredReservations []models.ReservedTicket
+			if err := h.db.Where("expires <= ?", time.Now()).Find(&expiredReservations).Error; err != nil {
+				log.Printf("⚠️  Error fetching expired reservations: %v", err)
+				continue
+			}
+
+			if len(expiredReservations) > 0 {
+				// Group by event and ticket class to notify waitlist
+				eventTickets := make(map[uint]map[uint]int) // eventID -> ticketClassID -> quantity
+
+				var reservationIDs []uint
+				for _, res := range expiredReservations {
+					reservationIDs = append(reservationIDs, res.ID)
+
+					// Track released quantity by event and ticket class
+					if _, exists := eventTickets[res.EventID]; !exists {
+						eventTickets[res.EventID] = make(map[uint]int)
+					}
+					eventTickets[res.EventID][res.TicketID] += res.QuantityReserved
+				}
+
+				if err := h.db.Where("id IN ?", reservationIDs).Delete(&models.ReservedTicket{}).Error; err != nil {
+					log.Printf("⚠️  Error releasing expired reservations: %v", err)
+				} else {
+					log.Printf("🧹 Released %d expired reservations", len(reservationIDs))
+
+					// Notify waitlist for each event/ticket class
+					for eventID, tickets := range eventTickets {
+						for ticketClassID, quantity := range tickets {
+							tcID := ticketClassID
+							h.autoNotifyWaitlist(eventID, &tcID, quantity)
+						}
+					}
+				}
+			}
+		}
+	}()
 }
 
 // ConvertReservationToOrder converts a reservation to an actual order
@@ -149,11 +199,13 @@ func (h *InventoryHandler) ConvertReservationToOrder(w http.ResponseWriter, r *h
 
 // ReleaseSessionReservations releases all reservations for a specific session
 func (h *InventoryHandler) ReleaseSessionReservations(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("session_id")
-	if sessionID == "" {
-		writeError(w, http.StatusBadRequest, "Session ID is required")
+	// Get session ID from authenticated user
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	sessionID := fmt.Sprintf("user_%d", userID)
 
 	var reservations []models.ReservedTicket
 	if err := h.db.Where("session_id = ?", sessionID).Find(&reservations).Error; err != nil {

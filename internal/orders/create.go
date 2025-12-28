@@ -204,6 +204,10 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Delete any reservations for this user and these tickets (reservation converted to order)
+	sessionID := fmt.Sprintf("user_%d", userID)
+	tx.Where("session_id = ? AND event_id = ?", sessionID, req.EventID).Delete(&models.ReservedTicket{})
+
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to complete order")

@@ -39,9 +39,8 @@ func (h *InventoryHandler) SetBaseURL(url string) {
 
 // Request types
 type CreateReservationRequest struct {
-	TicketClassID uint   `json:"ticket_class_id"`
-	Quantity      int    `json:"quantity"`
-	SessionID     string `json:"session_id"`
+	TicketClassID uint `json:"ticket_class_id"`
+	Quantity      int  `json:"quantity"`
 }
 
 type BulkAvailabilityRequest struct {

@@ -3,8 +3,10 @@ package inventory
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
+	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
 	"time"
@@ -102,9 +104,9 @@ func (h *InventoryHandler) JoinWaitlist(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Check if already on waitlist
+	// Check if already on waitlist (case-insensitive email comparison)
 	var existingEntry models.WaitlistEntry
-	query := h.db.Where("event_id = ? AND email = ? AND status = 'waiting'", req.EventID, req.Email)
+	query := h.db.Where("event_id = ? AND LOWER(email) = LOWER(?) AND status = 'waiting'", req.EventID, req.Email)
 	if req.TicketClassID != nil {
 		query = query.Where("ticket_class_id = ?", *req.TicketClassID)
 	}
@@ -186,9 +188,26 @@ func (h *InventoryHandler) GetWaitlistPosition(w http.ResponseWriter, r *http.Re
 
 // ListUserWaitlist returns all waitlist entries for a user (by email or session)
 func (h *InventoryHandler) ListUserWaitlist(w http.ResponseWriter, r *http.Request) {
+	// Try to get email from query parameter first
 	email := r.URL.Query().Get("email")
 	sessionID := r.URL.Query().Get("session_id")
 
+	// If not provided in query params, try to get from authenticated user
+	if email == "" && sessionID == "" {
+		// Try to get user ID from JWT token (if authenticated)
+		userID := middleware.GetUserIDFromToken(r)
+		if userID > 0 {
+			// Get user's email from database
+			var user struct {
+				Email string
+			}
+			if err := h.db.Table("users").Select("email").Where("id = ?", userID).First(&user).Error; err == nil {
+				email = user.Email
+			}
+		}
+	}
+
+	// If still no email or session_id, return error
 	if email == "" && sessionID == "" {
 		writeError(w, http.StatusBadRequest, "Email or session_id is required")
 		return
@@ -196,7 +215,8 @@ func (h *InventoryHandler) ListUserWaitlist(w http.ResponseWriter, r *http.Reque
 
 	query := h.db.Where("status IN ?", []string{"waiting", "notified"})
 	if email != "" {
-		query = query.Where("email = ?", email)
+		// Case-insensitive email comparison
+		query = query.Where("LOWER(email) = LOWER(?)", email)
 	} else {
 		query = query.Where("session_id = ?", sessionID)
 	}
@@ -223,10 +243,20 @@ func (h *InventoryHandler) ListUserWaitlist(w http.ResponseWriter, r *http.Reque
 		responses = append(responses, h.convertToWaitlistResponse(&entry, event.Title, ticketClassName))
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	result := map[string]interface{}{
 		"waitlist_entries": responses,
 		"total":            len(responses),
-	})
+	}
+
+	// Include search criteria in response
+	if email != "" {
+		result["email"] = email
+	}
+	if sessionID != "" {
+		result["session_id"] = sessionID
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // LeaveWaitlist removes a user from the waitlist
@@ -398,6 +428,99 @@ func (h *InventoryHandler) NotifyNextInWaitlist(w http.ResponseWriter, r *http.R
 		"notified_ids":   notifiedIDs,
 		"message":        fmt.Sprintf("Notified %d users from the waitlist", notifiedCount),
 	})
+}
+
+// autoNotifyWaitlist automatically notifies waitlist when tickets become available
+// This is called internally after reservations are released or tickets become available
+func (h *InventoryHandler) autoNotifyWaitlist(eventID uint, ticketClassID *uint, availableQty int) {
+	if availableQty <= 0 {
+		return
+	}
+
+	// Find waiting entries that can be notified
+	query := h.db.Where("event_id = ? AND status = 'waiting' AND quantity <= ?", eventID, availableQty).
+		Order("priority DESC, created_at ASC")
+
+	if ticketClassID != nil {
+		query = query.Where("ticket_class_id = ? OR ticket_class_id IS NULL", *ticketClassID)
+	}
+
+	var entries []models.WaitlistEntry
+	if err := query.Limit(10).Find(&entries).Error; err != nil {
+		log.Printf("⚠️  Error fetching waitlist entries: %v", err)
+		return
+	}
+
+	if len(entries) == 0 {
+		return
+	}
+
+	notifiedCount := 0
+
+	for _, entry := range entries {
+		// Update entry status
+		now := time.Now()
+		expires := now.Add(24 * time.Hour)
+		entry.Status = "notified"
+		entry.NotifiedAt = &now
+		entry.ExpiresAt = &expires
+
+		if err := h.db.Save(&entry).Error; err != nil {
+			continue
+		}
+
+		// Load event details
+		var event models.Event
+		if err := h.db.First(&event, entry.EventID).Error; err != nil {
+			continue
+		}
+
+		// Load ticket class details if applicable
+		var ticketClassName string
+		var price float64
+		if entry.TicketClassID != nil {
+			var ticketClass models.TicketClass
+			if err := h.db.First(&ticketClass, *entry.TicketClassID).Error; err == nil {
+				ticketClassName = ticketClass.Name
+				price = float64(ticketClass.Price) / 100.0
+			}
+		}
+
+		// Get venue name
+		venueName := ""
+		if len(event.Venue) > 0 {
+			if event.Venue[0].VenueName == "" {
+				h.db.Model(&event).Association("Venue").Find(&event.Venue)
+			}
+			if len(event.Venue) > 0 {
+				venueName = event.Venue[0].VenueName
+			}
+		}
+
+		// Send notification
+		if h.notificationService != nil {
+			emailData := notifications.WaitlistNotificationData{
+				Name:            entry.Name,
+				EventName:       event.Title,
+				EventDate:       event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"),
+				VenueName:       venueName,
+				TicketClassName: ticketClassName,
+				Quantity:        entry.Quantity,
+				Price:           price,
+				Currency:        "KES",
+				ExpiresAt:       expires.Format("Monday, January 2, 2006 at 3:04 PM"),
+				PurchaseURL:     fmt.Sprintf("%s/events/%d", h.baseURL, event.ID),
+			}
+
+			if err := h.notificationService.SendWaitlistNotificationEmail(entry.Email, emailData); err == nil {
+				notifiedCount++
+			}
+		}
+	}
+
+	if notifiedCount > 0 {
+		log.Printf("📧 Automatically notified %d users from waitlist for event %d", notifiedCount, eventID)
+	}
 }
 
 // Helper: Convert waitlist entry to response

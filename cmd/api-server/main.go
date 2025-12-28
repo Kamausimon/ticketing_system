@@ -134,6 +134,10 @@ func main() {
 	}
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
+
+	// Start automatic reservation cleanup
+	inventoryHandler.StartReservationCleanup()
+
 	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
@@ -409,35 +413,39 @@ func main() {
 	router.HandleFunc("/inventory/capacity/events/{id}", inventoryLimiter.HandlerFunc(inventoryHandler.GetEventCapacity)).Methods(http.MethodGet)
 	router.HandleFunc("/inventory/capacity/events/{id}/monitor", apiLimiter.HandlerFunc(inventoryHandler.MonitorCapacity)).Methods(http.MethodGet)
 
-	// all done above this
-
-	// Inventory routes - Waitlist - with rate limiting
-	router.HandleFunc("/inventory/waitlist", inventoryLimiter.HandlerFunc(inventoryHandler.JoinWaitlist)).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/waitlist/{id}", apiLimiter.HandlerFunc(inventoryHandler.GetWaitlistPosition)).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/waitlist", apiLimiter.HandlerFunc(inventoryHandler.ListUserWaitlist)).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/waitlist/{id}/leave", inventoryLimiter.HandlerFunc(inventoryHandler.LeaveWaitlist)).Methods(http.MethodDelete)
-	router.HandleFunc("/inventory/waitlist/events/{id}/stats", apiLimiter.HandlerFunc(inventoryHandler.GetWaitlistStats)).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/waitlist/notify", paymentLimiter.HandlerFunc(inventoryHandler.NotifyNextInWaitlist)).Methods(http.MethodPost)
-
-	// Inventory routes - Reservations - with rate limiting
-	router.HandleFunc("/inventory/reservations", inventoryLimiter.HandlerFunc(inventoryHandler.CreateReservation)).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/reservations/{id}", apiLimiter.HandlerFunc(inventoryHandler.GetReservation)).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/reservations", apiLimiter.HandlerFunc(inventoryHandler.ListUserReservations)).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/reservations/{id}/validate", inventoryLimiter.HandlerFunc(inventoryHandler.ValidateReservation)).Methods(http.MethodGet)
-	router.HandleFunc("/inventory/reservations/{id}/extend", inventoryLimiter.HandlerFunc(inventoryHandler.ExtendReservation)).Methods(http.MethodPost)
-
-	// Inventory routes - Release - with rate limiting
-	router.HandleFunc("/inventory/reservations/{id}/release", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseReservation)).Methods(http.MethodDelete)
-	router.HandleFunc("/inventory/reservations/expired", paymentLimiter.HandlerFunc(inventoryHandler.ReleaseExpiredReservations)).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/reservations/convert", paymentLimiter.HandlerFunc(inventoryHandler.ConvertReservationToOrder)).Methods(http.MethodPost)
-	router.HandleFunc("/inventory/reservations/session", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseSessionReservations)).Methods(http.MethodDelete)
-	router.HandleFunc("/inventory/events/{id}/reservations", apiLimiter.HandlerFunc(inventoryHandler.GetReservationsByEvent)).Methods(http.MethodGet)
-
 	// Payment routes - Processing - with rate limiting
 	router.HandleFunc("/payments/initiate", paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/orders/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetPaymentStatus)).Methods(http.MethodGet)
+
+	// Payment routes - Webhooks
+	router.HandleFunc("/webhooks/intasend", paymentHandler.HandleIntasendWebhook).Methods(http.MethodPost)
+	router.HandleFunc("/webhooks/logs", paymentHandler.GetWebhookLogs).Methods(http.MethodGet)
+	router.HandleFunc("/webhooks/logs/{id}/retry", paymentHandler.RetryFailedWebhook).Methods(http.MethodPost)
+
+	// Inventory routes - Waitlist - with rate limiting
+	router.HandleFunc("/inventory/waitlist", inventoryLimiter.HandlerFunc(inventoryHandler.JoinWaitlist)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/waitlist", apiLimiter.HandlerFunc(inventoryHandler.ListUserWaitlist)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/waitlist/{id}", apiLimiter.HandlerFunc(inventoryHandler.GetWaitlistPosition)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/waitlist/notify", paymentLimiter.HandlerFunc(inventoryHandler.NotifyNextInWaitlist)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/waitlist/{id}/leave", inventoryLimiter.HandlerFunc(inventoryHandler.LeaveWaitlist)).Methods(http.MethodDelete)
+	router.HandleFunc("/inventory/waitlist/events/{id}/stats", apiLimiter.HandlerFunc(inventoryHandler.GetWaitlistStats)).Methods(http.MethodGet)
+
+	// Inventory routes - Reservations - with rate limiting
+	router.HandleFunc("/inventory/reservations", inventoryLimiter.HandlerFunc(inventoryHandler.CreateReservation)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/reservations", apiLimiter.HandlerFunc(inventoryHandler.ListUserReservations)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/reservations/{id}", apiLimiter.HandlerFunc(inventoryHandler.GetReservation)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/reservations/{id}/validate", inventoryLimiter.HandlerFunc(inventoryHandler.ValidateReservation)).Methods(http.MethodGet)
+	router.HandleFunc("/inventory/reservations/{id}/extend", inventoryLimiter.HandlerFunc(inventoryHandler.ExtendReservation)).Methods(http.MethodPost)
+
+	// Inventory routes - Release - with rate limiting
+	router.HandleFunc("/inventory/reservations/expired", paymentLimiter.HandlerFunc(inventoryHandler.ReleaseExpiredReservations)).Methods(http.MethodPost)
+	router.HandleFunc("/inventory/reservations/session", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseSessionReservations)).Methods(http.MethodDelete)
+	router.HandleFunc("/inventory/reservations/{id}/release", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseReservation)).Methods(http.MethodDelete)
+	router.HandleFunc("/inventory/events/{id}/reservations", apiLimiter.HandlerFunc(inventoryHandler.GetReservationsByEvent)).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Payment routes - Methods (Saved payment methods) - with rate limiting
 	router.HandleFunc("/payments/methods", paymentLimiter.HandlerFunc(paymentHandler.SavePaymentMethod)).Methods(http.MethodPost)
@@ -451,11 +459,6 @@ func main() {
 	router.HandleFunc("/payments/refunds/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetRefundStatus)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/refunds", apiLimiter.HandlerFunc(paymentHandler.ListRefunds)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/refunds/{id}/approve", paymentLimiter.HandlerFunc(paymentHandler.ApproveRefund)).Methods(http.MethodPost)
-
-	// Payment routes - Webhooks
-	router.HandleFunc("/webhooks/intasend", paymentHandler.HandleIntasendWebhook).Methods(http.MethodPost)
-	router.HandleFunc("/webhooks/logs", paymentHandler.GetWebhookLogs).Methods(http.MethodGet)
-	router.HandleFunc("/webhooks/logs/{id}/retry", paymentHandler.RetryFailedWebhook).Methods(http.MethodPost)
 
 	// Payment routes - Gateways
 	router.HandleFunc("/payments/gateways", paymentHandler.GetAvailableGateways).Methods(http.MethodGet)
