@@ -173,6 +173,25 @@ func main() {
 	// Create email verification middleware
 	emailVerificationMiddleware := middleware.RequireEmailVerification(DB)
 
+	// Add CORS middleware for frontend - must be first
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Set CORS headers for all requests
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+			w.Header().Set("Access-Control-Max-Age", "3600")
+
+			// Handle preflight OPTIONS request
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Add Prometheus middleware
 	router.Use(analytics.PrometheusMiddleware(metrics))
 
@@ -594,6 +613,15 @@ func main() {
 		router.HandleFunc("/notifications/password-reset", notificationHandler.SendPasswordReset).Methods(http.MethodPost)
 		fmt.Println("✅ Notification routes registered")
 	}
+
+	// Global OPTIONS handler for CORS preflight - must be after all routes
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}).Methods(http.MethodOptions)
 
 	server := &http.Server{
 		Addr:    ":8080",
