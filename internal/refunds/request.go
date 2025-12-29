@@ -93,7 +93,7 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prevent refunds for events that have already occurred
-	if order.Event != nil && order.Event.EndDate.Before(time.Now()) {
+	if order.Event.ID != 0 && order.Event.EndDate.Before(time.Now()) {
 		writeError(w, http.StatusBadRequest,
 			"Cannot request refund for an event that has already ended")
 		return
