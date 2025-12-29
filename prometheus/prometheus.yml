@@ -22,7 +22,7 @@ scrape_configs:
   # Ticketing System API
   - job_name: 'ticketing_api'
     static_configs:
-      - targets: ['host.docker.internal:8080']
+      - targets: ['172.22.29.124:8080']
     metrics_path: '/metrics'
     scrape_interval: 15s
     scrape_timeout: 10s
