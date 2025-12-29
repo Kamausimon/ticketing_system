@@ -445,9 +445,7 @@ func main() {
 	router.HandleFunc("/inventory/reservations/{id}/release", inventoryLimiter.HandlerFunc(inventoryHandler.ReleaseReservation)).Methods(http.MethodDelete)
 	router.HandleFunc("/inventory/events/{id}/reservations", apiLimiter.HandlerFunc(inventoryHandler.GetReservationsByEvent)).Methods(http.MethodGet)
 
-	// all done above this
-
-	// Payment routes - Methods (Saved payment methods) - with rate limiting
+	// Payment routes - Methods (Saved payment methods) - with rate limiting inactive
 	router.HandleFunc("/payments/methods", paymentLimiter.HandlerFunc(paymentHandler.SavePaymentMethod)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/methods", apiLimiter.HandlerFunc(paymentHandler.GetPaymentMethods)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/methods/{id}", paymentLimiter.HandlerFunc(paymentHandler.DeletePaymentMethod)).Methods(http.MethodDelete)
@@ -462,6 +460,8 @@ func main() {
 
 	// Payment routes - Gateways
 	router.HandleFunc("/payments/gateways", paymentHandler.GetAvailableGateways).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Refund routes - Customer - with rate limiting
 	router.HandleFunc("/refunds", paymentLimiter.HandlerFunc(refundHandler.RequestRefund)).Methods(http.MethodPost)

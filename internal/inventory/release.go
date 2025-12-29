@@ -80,7 +80,7 @@ func (h *InventoryHandler) ReleaseExpiredReservations(w http.ResponseWriter, r *
 // StartReservationCleanup starts a background goroutine that automatically cleans up expired reservations
 func (h *InventoryHandler) StartReservationCleanup() {
 	go func() {
-		ticker := time.NewTicker(1 * time.Minute) // Check every minute
+		ticker := time.NewTicker(60 * time.Minute) // Check every minute
 		defer ticker.Stop()
 
 		log.Println("🧹 Reservation cleanup background job started")

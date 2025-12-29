@@ -81,6 +81,37 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Anti-spam: Check for duplicate refund requests within 24 hours
+	var recentRefund models.RefundRecord
+	twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
+	err = h.db.Where("order_id = ? AND account_id = ? AND created_at > ?",
+		order.ID, accountID, twentyFourHoursAgo).First(&recentRefund).Error
+	if err == nil {
+		writeError(w, http.StatusTooManyRequests,
+			"You have already requested a refund for this order recently. Please wait before trying again.")
+		return
+	}
+
+	// Prevent refunds for events that have already occurred
+	if order.Event != nil && order.Event.EndDate.Before(time.Now()) {
+		writeError(w, http.StatusBadRequest,
+			"Cannot request refund for an event that has already ended")
+		return
+	}
+
+	// Check if any tickets have been checked in (attended)
+	var checkedInCount int64
+	h.db.Model(&models.Ticket{}).
+		Joins("JOIN order_items ON order_items.id = tickets.order_item_id").
+		Where("order_items.order_id = ? AND tickets.checked_in_at IS NOT NULL", order.ID).
+		Count(&checkedInCount)
+
+	if checkedInCount > 0 {
+		writeError(w, http.StatusForbidden,
+			"Cannot request refund because one or more tickets have been used/checked in at the event")
+		return
+	}
+
 	// Calculate refund amount
 	refundAmount := int64(0)
 	if req.RefundType == models.RefundFull {
