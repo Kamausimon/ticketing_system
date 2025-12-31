@@ -10,13 +10,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// Example of integrating rate limiting into the API server
-
-// InitializeRateLimiting sets up rate limiters for different endpoints
 func InitializeRateLimiting() *ratelimit.Governor {
 	gov := ratelimit.NewTokenBucketGovernor()
 
-	// Configure different rate limits for different endpoints
 	gov.GetOrCreate("api", ratelimit.Presets.API)           // 100 req/s, burst 200
 	gov.GetOrCreate("auth", ratelimit.Presets.Auth)         // 10 req/min
 	gov.GetOrCreate("login", ratelimit.Presets.Login)       // 5 attempts/min
@@ -26,23 +22,18 @@ func InitializeRateLimiting() *ratelimit.Governor {
 	return gov
 }
 
-// RateLimitingMiddleware creates a middleware that enforces rate limits
 func RateLimitingMiddleware(gov *ratelimit.Governor, limiterName string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract rate limit key (IP address by default)
 			keyFunc := ratelimit.KeyFuncs.ByIP
 			key := keyFunc(r)
 
-			// Check rate limit
 			result := gov.AllowWithResult(limiterName, key)
 
-			// Add rate limit headers
 			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", result.Remaining))
 			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(result.ResetAfter).Unix()))
 
 			if !result.Allowed {
-				// Add Retry-After header
 				w.Header().Set("Retry-After", fmt.Sprintf("%.0f", result.RetryAfter.Seconds()))
 				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 				return
