@@ -201,9 +201,19 @@ func (h *OrganizerHandler) UploadOrganizerLogo(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// For now, return success with a placeholder path
-	// In production, implement actual file storage (local/S3/GCS)
-	logoPath := "/uploads/logos/placeholder_" + header.Filename
+	// Upload file using storage service
+	var logoPath string
+	if h.storage != nil {
+		result, err := h.storage.UploadFile(file, header, "logos")
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to upload logo: "+err.Error())
+			return
+		}
+		logoPath = result.URL
+	} else {
+		// Fallback to placeholder if storage service not available
+		logoPath = "/uploads/logos/placeholder_" + header.Filename
+	}
 
 	// Update organizer logo path
 	if err := h.db.Model(&organizer).Update("logo_path", logoPath).Error; err != nil {

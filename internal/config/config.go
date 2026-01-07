@@ -15,6 +15,8 @@ type Config struct {
 	Email    EmailConfig
 	App      AppConfig
 	Security SecurityConfig
+	Redis    RedisConfig
+	S3       S3Config
 }
 
 // DatabaseConfig holds database configuration
@@ -63,6 +65,25 @@ type SecurityConfig struct {
 	EncryptionKey string // Must be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256
 }
 
+// RedisConfig holds Redis configuration
+type RedisConfig struct {
+	Addr     string // Redis server address (e.g., localhost:6379)
+	Password string // Redis password (leave empty if no auth)
+	DB       int    // Redis database number
+	Enabled  bool   // Enable/disable Redis
+}
+
+// S3Config holds AWS S3 configuration
+type S3Config struct {
+	AccessKey string // AWS access key ID
+	SecretKey string // AWS secret access key
+	Region    string // AWS region (e.g., us-east-1)
+	Bucket    string // S3 bucket name
+	PublicURL string // Public URL for accessing files
+	LocalPath string // Fallback local storage path
+	Enabled   bool   // Enable/disable S3
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	config := &Config{
@@ -101,6 +122,21 @@ func Load() (*Config, error) {
 		},
 		Security: SecurityConfig{
 			EncryptionKey: getEnv("ENCRYPTION_KEY", "dev-key-32-bytes-length-aes!!123"), // Default 32-byte key for development
+		},
+		Redis: RedisConfig{
+			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getEnvAsInt("REDIS_DB", 0),
+			Enabled:  getEnvAsBool("REDIS_ENABLED", false),
+		},
+		S3: S3Config{
+			AccessKey: getEnv("AWS_ACCESS_KEY_ID", ""),
+			SecretKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
+			Region:    getEnv("AWS_REGION", "us-east-1"),
+			Bucket:    getEnv("S3_BUCKET", ""),
+			PublicURL: getEnv("S3_PUBLIC_URL", "http://localhost:8080/uploads"),
+			LocalPath: getEnv("LOCAL_STORAGE_PATH", "./uploads"),
+			Enabled:   getEnvAsBool("S3_ENABLED", false),
 		},
 	}
 	err := godotenv.Load(".env")

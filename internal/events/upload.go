@@ -101,51 +101,64 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create uploads directory if it doesn't exist
-	uploadsDir := "uploads/events"
-	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create upload directory")
-		return
-	}
+	// Upload file using storage service
+	var imagePath string
+	if h.storage != nil {
+		result, err := h.storage.UploadFile(file, handler, "events")
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to upload image: "+err.Error())
+			return
+		}
+		imagePath = result.URL
+	} else {
+		// Fallback to local storage if storage service not available
+		uploadsDir := "uploads/events"
+		if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create upload directory")
+			return
+		}
 
-	// Generate unique filename
-	ext := filepath.Ext(handler.Filename)
-	filename := fmt.Sprintf("event_%d_%d%s", eventID, time.Now().Unix(), ext)
-	filepath := filepath.Join(uploadsDir, filename)
+		ext := filepath.Ext(handler.Filename)
+		filename := fmt.Sprintf("event_%d_%d%s", eventID, time.Now().Unix(), ext)
+		filepath := filepath.Join(uploadsDir, filename)
 
-	// Create the file on disk
-	dst, err := os.Create(filepath)
-	if err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create file")
-		return
-	}
-	defer dst.Close()
+		dst, err := os.Create(filepath)
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create file")
+			return
+		}
+		defer dst.Close()
 
-	// Copy file content
-	_, err = io.Copy(dst, file)
-	if err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to save file")
-		return
+		_, err = io.Copy(dst, file)
+		if err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to save file")
+			return
+		}
+		imagePath = filepath
 	}
 
 	// Save image record to database
 	eventImage := models.EventImages{
 		EventID:   uint(eventID),
-		ImagePath: filepath,
+		ImagePath: imagePath,
 		AccountID: user.AccountID,
 		UserID:    userID,
 	}
 
 	if err := h.db.Create(&eventImage).Error; err != nil {
 		// If database save fails, remove the uploaded file
-		os.Remove(filepath)
+		if h.storage != nil {
+			h.storage.DeleteFile(imagePath)
+		} else {
+			os.Remove(imagePath)
+		}
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to save image record")
 		return
 	}
 
 	response := UploadResponse{
 		Message:   "Image uploaded successfully",
-		ImagePath: filepath,
+		ImagePath: imagePath,
 		ImageID:   eventImage.ID,
 	}
 

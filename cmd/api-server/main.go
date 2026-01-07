@@ -9,6 +9,7 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/attendees"
 	"ticketing_system/internal/auth"
+	"ticketing_system/internal/cache"
 	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
 	"ticketing_system/internal/events"
@@ -24,6 +25,7 @@ import (
 	"ticketing_system/internal/security"
 	"ticketing_system/internal/seed"
 	"ticketing_system/internal/settlement"
+	"ticketing_system/internal/storage"
 	"ticketing_system/internal/ticketclasses"
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
@@ -81,6 +83,39 @@ func main() {
 		fmt.Printf("⚠️  Warning: Failed to load config: %v\n", err)
 		fmt.Println("⚠️  Notification and encryption services will not be available")
 	}
+
+	// Initialize Redis session manager
+	var sessionManager *cache.SessionManager
+	if cfg != nil && cfg.Redis.Enabled {
+		sessionManager = cache.NewSessionManager(
+			cfg.Redis.Addr,
+			cfg.Redis.Password,
+			cfg.Redis.DB,
+		)
+		fmt.Println("✅ Redis session manager initialized (with in-memory fallback)")
+	} else {
+		fmt.Println("⚠️  Redis disabled - using in-memory sessions only")
+		sessionManager = cache.NewSessionManager("", "", 0) // Will only use fallback
+	}
+	// Note: sessionManager is available for future use in auth/session management
+	_ = sessionManager // Suppress unused variable warning
+
+	// Initialize S3 storage service
+	var storageService *storage.StorageService
+	if cfg != nil {
+		storageService, err = storage.NewStorageService(
+			cfg.S3.AccessKey,
+			cfg.S3.SecretKey,
+			cfg.S3.Region,
+			cfg.S3.Bucket,
+			cfg.S3.LocalPath,
+			cfg.S3.PublicURL,
+		)
+		if err != nil {
+			fmt.Printf("⚠️  Warning: Failed to initialize storage service: %v\n", err)
+		}
+	}
+
 	var notificationHandler *notifications.Handler
 	var notificationService *notifications.NotificationService
 	if cfg != nil {
@@ -117,11 +152,11 @@ func main() {
 
 	var organizerHandler *organizers.OrganizerHandler
 	if notificationService != nil {
-		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService, encryptionService)
+		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, notificationService, encryptionService, storageService)
 	} else {
-		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil, encryptionService)
+		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil, encryptionService, storageService)
 	}
-	eventHandler := events.NewEventHandler(DB, metrics)
+	eventHandler := events.NewEventHandler(DB, metrics, storageService)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
 	orderHandler := orders.NewOrderHandler(DB, metrics, paymentHandler, notificationService)
