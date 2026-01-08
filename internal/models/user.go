@@ -14,6 +14,7 @@ const (
 	RoleCustomer  Role = "customer"
 	RoleOrganizer Role = "organizer"
 	RoleAdmin     Role = "admin"
+	RoleSupport   Role = "support"
 )
 
 func (P *Role) Scan(value interface{}) error {

@@ -26,6 +26,7 @@ import (
 	"ticketing_system/internal/seed"
 	"ticketing_system/internal/settlement"
 	"ticketing_system/internal/storage"
+	"ticketing_system/internal/support"
 	"ticketing_system/internal/ticketclasses"
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
@@ -56,6 +57,8 @@ func main() {
 		&models.Currency{},
 		&models.DateFormat{},
 		&models.DateTimeFormat{},
+		&models.SupportTicket{},
+		&models.SupportTicketComment{},
 	)
 	if err != nil {
 		fmt.Printf("Migration failed: %v\n", err)
@@ -177,6 +180,7 @@ func main() {
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
 	settlementHandler := settlement.NewSettlementHandler(settlementService)
+	supportHandler := support.NewSupportHandler(DB, metrics, notificationService)
 	attendeeHandler := attendees.NewAttendeeHandler(DB, metrics)
 	venueHandler := venues.NewVenueHandler(DB, metrics)
 	adminUserHandler := admin.NewUserHandler(DB)
@@ -291,6 +295,18 @@ func main() {
 	router.HandleFunc("/admin/users/{id}", adminUserHandler.GetUserDetails).Methods(http.MethodGet)
 	router.HandleFunc("/admin/users/{id}/role", adminUserHandler.UpdateUserRole).Methods(http.MethodPut)
 	router.HandleFunc("/admin/users/{id}/status", adminUserHandler.UpdateUserStatus).Methods(http.MethodPut)
+
+	// Support ticket routes - Public (can create without auth)
+	router.HandleFunc("/support/tickets", supportHandler.CreateTicket).Methods(http.MethodPost)
+
+	// Support ticket routes - Authenticated users
+	router.HandleFunc("/support/tickets", supportHandler.ListTickets).Methods(http.MethodGet)
+	router.HandleFunc("/support/tickets/{id}", supportHandler.GetTicket).Methods(http.MethodGet)
+	router.HandleFunc("/support/tickets/{id}/comments", supportHandler.AddComment).Methods(http.MethodPost)
+
+	// Support ticket routes - Admin/Support staff only
+	router.HandleFunc("/support/tickets/{id}", supportHandler.UpdateTicket).Methods(http.MethodPut)
+	router.HandleFunc("/support/tickets/stats", supportHandler.GetTicketStats).Methods(http.MethodGet)
 
 	// Event routes - Public
 	router.HandleFunc("/events", eventHandler.ListEvents).Methods(http.MethodGet)
