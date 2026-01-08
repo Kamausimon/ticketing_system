@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"ticketing_system/internal/ai"
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
@@ -21,6 +22,7 @@ type SupportHandler struct {
 	db            *gorm.DB
 	metrics       *analytics.PrometheusMetrics
 	notifications *notifications.NotificationService
+	aiClassifier  *ai.ClassifierService
 }
 
 func NewSupportHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService) *SupportHandler {
@@ -28,6 +30,7 @@ func NewSupportHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notifi
 		db:            db,
 		metrics:       metrics,
 		notifications: notificationService,
+		aiClassifier:  ai.NewClassifierService(),
 	}
 }
 
@@ -119,11 +122,70 @@ func (h *SupportHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Run AI classification asynchronously if available
+	if h.aiClassifier != nil {
+		h.aiClassifier.ClassifyAsync(
+			ticket.Subject,
+			ticket.Description,
+			string(ticket.Category),
+			ticket.OrderID,
+			ticket.EventID,
+			func(classification *ai.TicketClassification, err error) {
+				if err != nil {
+					fmt.Printf("AI classification failed for ticket #%s: %v\n", ticket.TicketNumber, err)
+					return
+				}
+
+				// Update ticket with AI classification results
+				updates := map[string]interface{}{
+					"ai_classified":       true,
+					"ai_priority":         classification.Priority,
+					"ai_confidence_score": classification.Confidence,
+					"ai_reasoning":        classification.Reasoning,
+				}
+
+				// Auto-apply priority if confidence is high enough
+				if classification.Confidence >= 0.85 {
+					updates["priority"] = classification.Priority
+					fmt.Printf("Auto-applied AI priority '%s' to ticket #%s (confidence: %.2f)\n",
+						classification.Priority, ticket.TicketNumber, classification.Confidence)
+				}
+
+				if err := h.db.Model(&models.SupportTicket{}).Where("id = ?", ticket.ID).Updates(updates).Error; err != nil {
+					fmt.Printf("Failed to update ticket with AI classification: %v\n", err)
+				}
+			},
+		)
+	}
+
 	// Load relationships
 	h.db.Preload("User").Preload("Order").Preload("Event").Preload("Organizer").First(&ticket, ticket.ID)
 
-	// TODO: Send email notification to support team
-	// h.notifications.SendSupportTicketCreated(...)
+	// Send email notification to support team
+	if h.notifications != nil {
+		emailData := notifications.SupportTicketCreatedData{
+			TicketID:      ticket.ID,
+			TicketNumber:  ticket.TicketNumber,
+			Subject:       ticket.Subject,
+			Description:   ticket.Description,
+			Category:      string(ticket.Category),
+			Priority:      string(ticket.Priority),
+			CustomerName:  ticket.Name,
+			CustomerEmail: ticket.Email,
+			OrderID:       ticket.OrderID,
+			EventID:       ticket.EventID,
+			CreatedAt:     ticket.CreatedAt.Format("January 2, 2006 at 3:04 PM"),
+			DashboardURL:  "http://localhost:3000", // TODO: Get from config
+			AIClassified:  ticket.AIClassified,
+			AIPriority:    ticket.AIPriority,
+			AIConfidence:  int(ticket.AIConfidenceScore * 100),
+			AIReasoning:   ticket.AIReasoning,
+		}
+
+		if err := h.notifications.SendSupportTicketCreated(emailData); err != nil {
+			fmt.Printf("Failed to send ticket creation email: %v\n", err)
+		}
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -351,8 +413,36 @@ func (h *SupportHandler) UpdateTicket(w http.ResponseWriter, r *http.Request) {
 	h.db.Preload("User").Preload("Order").Preload("Event").Preload("Organizer").
 		Preload("AssignedTo").Preload("ResolvedBy").First(&ticket, ticket.ID)
 
-	// TODO: Send email notification about status change
-	// h.notifications.SendTicketStatusUpdate(...)
+	// Send email notification about status change
+	if h.notifications != nil && req.Status != nil {
+		var assignedToName string
+		if ticket.AssignedTo != nil {
+			assignedToName = ticket.AssignedTo.FirstName + " " + ticket.AssignedTo.LastName
+		}
+
+		var resolvedAt string
+		if ticket.ResolvedAt != nil {
+			resolvedAt = ticket.ResolvedAt.Format("January 2, 2006 at 3:04 PM")
+		}
+
+		emailData := notifications.SupportTicketStatusUpdateData{
+			TicketNumber:    ticket.TicketNumber,
+			Subject:         ticket.Subject,
+			CustomerName:    ticket.Name,
+			OldStatus:       string(ticket.Status), // Note: This shows new status due to update
+			NewStatus:       *req.Status,
+			Priority:        string(ticket.Priority),
+			AssignedTo:      assignedToName,
+			ResolutionNotes: ticket.ResolutionNotes,
+			ResolvedAt:      resolvedAt,
+			UpdatedAt:       ticket.UpdatedAt.Format("January 2, 2006 at 3:04 PM"),
+			TicketURL:       fmt.Sprintf("http://localhost:3000/support/tickets/%s", ticket.TicketNumber),
+		}
+
+		if err := h.notifications.SendTicketStatusUpdate(ticket.Email, emailData); err != nil {
+			fmt.Printf("Failed to send ticket status update email: %v\n", err)
+		}
+	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "Support ticket updated successfully",
@@ -430,8 +520,23 @@ func (h *SupportHandler) AddComment(w http.ResponseWriter, r *http.Request) {
 	// Reload comment with relationships
 	h.db.Preload("User").First(&comment, comment.ID)
 
-	// TODO: Send email notification about new comment
-	// h.notifications.SendTicketCommentAdded(...)
+	// Send email notification about new comment (only if not internal and ticket has an email)
+	if h.notifications != nil && !comment.IsInternal && ticket.Email != "" {
+		emailData := notifications.SupportTicketCommentData{
+			TicketNumber:  ticket.TicketNumber,
+			Subject:       ticket.Subject,
+			CustomerName:  ticket.Name,
+			Status:        string(ticket.Status),
+			CommentAuthor: authorName,
+			Comment:       comment.Comment,
+			CommentTime:   comment.CreatedAt.Format("January 2, 2006 at 3:04 PM"),
+			TicketURL:     fmt.Sprintf("http://localhost:3000/support/tickets/%s", ticket.TicketNumber),
+		}
+
+		if err := h.notifications.SendTicketCommentAdded(ticket.Email, emailData); err != nil {
+			fmt.Printf("Failed to send comment notification email: %v\n", err)
+		}
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{

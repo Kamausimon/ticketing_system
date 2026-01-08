@@ -799,10 +799,124 @@ The Ticketing System Security Team
 	return nil
 }
 
-// GetSupportEmail returns the support email address
+// returns the support email address
 func (s *NotificationService) GetSupportEmail() string {
 	if s.config.Email.FromEmail != "" {
 		return s.config.Email.FromEmail
 	}
 	return "support@ticketingsystem.com"
+}
+
+// SupportTicketCreatedData holds data for support ticket creation emails
+type SupportTicketCreatedData struct {
+	TicketID      uint
+	TicketNumber  string
+	Subject       string
+	Description   string
+	Category      string
+	Priority      string
+	CustomerName  string
+	CustomerEmail string
+	OrderID       *uint
+	EventID       *uint
+	CreatedAt     string
+	DashboardURL  string
+	AIClassified  bool
+	AIPriority    string
+	AIConfidence  int
+	AIReasoning   string
+}
+
+// SendSupportTicketCreated sends an email to support team when a new ticket is created
+func (s *NotificationService) SendSupportTicketCreated(data SupportTicketCreatedData) error {
+	// Send to support email
+	supportEmail := s.GetSupportEmail()
+
+	err := s.emailService.SendWithTemplate(
+		[]string{supportEmail},
+		fmt.Sprintf("New Support Ticket #%s - %s", data.TicketNumber, data.Priority),
+		"support_ticket_created",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send support ticket creation email: %v", err)
+		return err
+	}
+
+	log.Printf("✅ Support ticket creation email sent for ticket #%s", data.TicketNumber)
+	return nil
+}
+
+// SupportTicketStatusUpdateData holds data for ticket status update emails
+type SupportTicketStatusUpdateData struct {
+	TicketNumber    string
+	Subject         string
+	CustomerName    string
+	OldStatus       string
+	NewStatus       string
+	Priority        string
+	AssignedTo      string
+	ResolutionNotes string
+	ResolvedAt      string
+	UpdatedAt       string
+	TicketURL       string
+	SupportEmail    string
+}
+
+// SendTicketStatusUpdate sends an email to the customer when ticket status is updated
+func (s *NotificationService) SendTicketStatusUpdate(email string, data SupportTicketStatusUpdateData) error {
+	data.SupportEmail = s.GetSupportEmail()
+
+	subject := fmt.Sprintf("Ticket #%s Updated - %s", data.TicketNumber, data.NewStatus)
+
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		subject,
+		"support_ticket_status_update",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send ticket status update email to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Ticket status update email sent to %s for ticket #%s", email, data.TicketNumber)
+	return nil
+}
+
+// SupportTicketCommentData holds data for comment notification emails
+type SupportTicketCommentData struct {
+	TicketNumber  string
+	Subject       string
+	CustomerName  string
+	Status        string
+	CommentAuthor string
+	Comment       string
+	CommentTime   string
+	TicketURL     string
+	SupportEmail  string
+}
+
+// SendTicketCommentAdded sends an email when a comment is added to a ticket
+func (s *NotificationService) SendTicketCommentAdded(email string, data SupportTicketCommentData) error {
+	data.SupportEmail = s.GetSupportEmail()
+
+	subject := fmt.Sprintf("New comment on Ticket #%s", data.TicketNumber)
+
+	err := s.emailService.SendWithTemplate(
+		[]string{email},
+		subject,
+		"support_ticket_comment_added",
+		data,
+	)
+
+	if err != nil {
+		log.Printf("❌ Failed to send comment notification email to %s: %v", email, err)
+		return err
+	}
+
+	log.Printf("✅ Comment notification email sent to %s for ticket #%s", email, data.TicketNumber)
+	return nil
 }

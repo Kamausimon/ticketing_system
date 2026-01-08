@@ -692,3 +692,5 @@ const organizerRejectionTemplate = `
 </body>
 </html>
 `
+
+

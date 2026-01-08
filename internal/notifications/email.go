@@ -334,6 +334,9 @@ func (s *EmailService) getTemplate(name string) (*template.Template, error) {
 		"waitlist_notification":              waitlistNotificationTemplate,
 		"organizer_application_confirmation": organizerApplicationConfirmationTemplate,
 		"admin_organizer_notification":       adminOrganizerNotificationTemplate,
+		"support_ticket_created":             supportTicketCreatedTemplate,
+		"support_ticket_status_update":       supportTicketStatusUpdateTemplate,
+		"support_ticket_comment_added":       supportTicketCommentAddedTemplate,
 	}
 
 	tmplStr, exists := templates[name]
