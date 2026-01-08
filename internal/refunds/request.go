@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 
 	"github.com/gorilla/mux"
@@ -14,9 +15,9 @@ import (
 // RequestRefund handles customer-initiated refund requests
 func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 	// Get account ID from context (set by auth middleware)
-	accountID, ok := r.Context().Value("account_id").(uint)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
+	accountID := middleware.GetUserIDFromToken(r)
+	if accountID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
@@ -62,13 +63,20 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if order.AccountID != accountID {
+	// Get user to access AccountID
+	var user models.User
+	if err := h.db.First(&user, accountID).Error; err != nil {
+		writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	if order.AccountID != user.AccountID {
 		writeError(w, http.StatusForbidden, "You don't have permission to refund this order")
 		return
 	}
 
 	// Check if order is eligible for refund
-	if order.Status != "paid" && order.Status != "completed" {
+	if order.Status != "paid" && order.Status != "fulfilled" {
 		writeError(w, http.StatusBadRequest, "Order must be paid or completed to request refund")
 		return
 	}
@@ -138,13 +146,13 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 		Status:          models.RefundRequested,
 		OrderID:         order.ID,
 		EventID:         order.EventID,
-		AccountID:       accountID,
+		AccountID:       order.AccountID, // Use order's AccountID, not user ID
 		OrganizerID:     order.Event.OrganizerID,
 		OriginalAmount:  models.Money(order.TotalAmount),
 		RefundAmount:    models.Money(refundAmount),
 		OrganizerImpact: models.Money(refundAmount), // Will be adjusted during approval
 		Currency:        order.Currency,
-		RequestedBy:     &accountID,
+		RequestedBy:     &accountID, // User ID who requested
 		RequestedAt:     time.Now(),
 		Description:     req.Description,
 	}
@@ -222,9 +230,9 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 // GetRefundStatus returns the status of a specific refund
 func (h *RefundHandler) GetRefundStatus(w http.ResponseWriter, r *http.Request) {
 	// Get account ID from context
-	accountID, ok := r.Context().Value("account_id").(uint)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
+	accountID := middleware.GetUserIDFromToken(r)
+	if accountID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
@@ -289,15 +297,30 @@ func (h *RefundHandler) GetRefundStatus(w http.ResponseWriter, r *http.Request) 
 
 // ListRefunds returns all refunds for the current account
 func (h *RefundHandler) ListRefunds(w http.ResponseWriter, r *http.Request) {
-	// Get account ID from context
-	accountID, ok := r.Context().Value("account_id").(uint)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
+	// Get user ID from context
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
+	// Get user to access AccountID
+	var user models.User
+	if err := h.db.First(&user, userID).Error; err != nil {
+		writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	// Optional status filter
+	status := r.URL.Query().Get("status")
+
+	query := h.db.Where("account_id = ?", user.AccountID)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
 	var refunds []models.RefundRecord
-	if err := h.db.Where("account_id = ?", accountID).Order("created_at DESC").Find(&refunds).Error; err != nil {
+	if err := query.Order("created_at DESC").Find(&refunds).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to fetch refunds")
 		return
 	}
@@ -325,12 +348,11 @@ func (h *RefundHandler) ListRefunds(w http.ResponseWriter, r *http.Request) {
 // CancelRefundRequest allows customer to cancel a pending refund request
 func (h *RefundHandler) CancelRefundRequest(w http.ResponseWriter, r *http.Request) {
 	// Get account ID from context
-	accountID, ok := r.Context().Value("account_id").(uint)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
+	accountID := middleware.GetUserIDFromToken(r)
+	if accountID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-
 	// Get refund ID from URL
 	vars := mux.Vars(r)
 	refundID := vars["id"]

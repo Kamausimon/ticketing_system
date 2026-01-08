@@ -301,12 +301,12 @@ func main() {
 
 	// Support ticket routes - Authenticated users
 	router.HandleFunc("/support/tickets", supportHandler.ListTickets).Methods(http.MethodGet)
+	router.HandleFunc("/support/tickets/stats", supportHandler.GetTicketStats).Methods(http.MethodGet)
 	router.HandleFunc("/support/tickets/{id}", supportHandler.GetTicket).Methods(http.MethodGet)
 	router.HandleFunc("/support/tickets/{id}/comments", supportHandler.AddComment).Methods(http.MethodPost)
 
 	// Support ticket routes - Admin/Support staff only
 	router.HandleFunc("/support/tickets/{id}", supportHandler.UpdateTicket).Methods(http.MethodPut)
-	router.HandleFunc("/support/tickets/stats", supportHandler.GetTicketStats).Methods(http.MethodGet)
 
 	// Event routes - Public
 	router.HandleFunc("/events", eventHandler.ListEvents).Methods(http.MethodGet)
@@ -531,13 +531,13 @@ func main() {
 	// Payment routes - Gateways
 	router.HandleFunc("/payments/gateways", paymentHandler.GetAvailableGateways).Methods(http.MethodGet)
 
-	// all done above this
-
 	// Refund routes - Customer - with rate limiting
 	router.HandleFunc("/refunds", paymentLimiter.HandlerFunc(refundHandler.RequestRefund)).Methods(http.MethodPost)
 	router.HandleFunc("/refunds", apiLimiter.HandlerFunc(refundHandler.ListRefunds)).Methods(http.MethodGet)
 	router.HandleFunc("/refunds/{id}", apiLimiter.HandlerFunc(refundHandler.GetRefundStatus)).Methods(http.MethodGet)
 	router.HandleFunc("/refunds/{id}/cancel", paymentLimiter.HandlerFunc(refundHandler.CancelRefundRequest)).Methods(http.MethodPost)
+
+	// all done above this
 
 	// Refund routes - Admin/Organizer
 	router.HandleFunc("/admin/refunds/pending", refundHandler.ListPendingRefunds).Methods(http.MethodGet)

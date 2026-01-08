@@ -289,6 +289,32 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 		refundAmount = float64(order.Amount) // Full refund
 	}
 
+	// Create RefundRecord before processing
+	refundNumber := fmt.Sprintf("REF-%d-%d", order.ID, time.Now().Unix())
+	refundRecord := models.RefundRecord{
+		RefundNumber:    refundNumber,
+		RefundType:      models.RefundFull,
+		RefundReason:    models.RefundReason(req.Reason),
+		Status:          models.RefundProcessing,
+		OrderID:         order.ID,
+		EventID:         order.EventID,
+		AccountID:       order.AccountID,
+		OrganizerID:     order.Event.OrganizerID,
+		OriginalAmount:  models.Money(order.TotalAmount),
+		RefundAmount:    models.Money(refundAmount * 100), // Convert to cents
+		OrganizerImpact: models.Money(refundAmount * 100),
+		Currency:        order.Currency,
+		RequestedBy:     &userID,
+		RequestedAt:     time.Now(),
+		Description:     req.Reason,
+	}
+
+	// Save refund record
+	if err := h.db.Create(&refundRecord).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create refund record")
+		return
+	}
+
 	// Get payment record with external transaction ID (must be done before updating order)
 	var paymentRecord models.PaymentRecord
 	if err := h.db.Where("order_id = ? AND status = ?", order.ID, models.RecordCompleted).
@@ -305,24 +331,44 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 	// Initiate refund through Intasend
 	if h.paymentHandler != nil {
 		amountInCents := int64(refundAmount * 100)
-		_, err := h.paymentHandler.InitiateIntasendRefund(
+		intasendResp, err := h.paymentHandler.InitiateIntasendRefund(
 			*paymentRecord.ExternalTransactionID,
 			amountInCents,
 			req.Reason,
 		)
 		if err != nil {
+			// Mark refund as failed
+			refundRecord.Status = models.RefundFailed
+			failedAt := time.Now()
+			refundRecord.FailedAt = &failedAt
+			h.db.Save(&refundRecord)
+
 			middleware.WriteJSONError(w, http.StatusInternalServerError,
 				fmt.Sprintf("failed to initiate refund with payment provider: %v", err))
 			return
 		}
+
+		// Update refund record with external ID
+		if intasendResp != nil && intasendResp.ID != "" {
+			refundRecord.ExternalRefundID = &intasendResp.ID
+		}
 	}
+
+	// Mark refund as completed
+	now := time.Now()
+	refundRecord.Status = models.RefundCompleted
+	refundRecord.ProcessedAt = &now
+	refundRecord.CompletedAt = &now
+	refundRecord.ApprovedBy = &userID
+	refundRecord.ApprovedAt = &now
+	h.db.Save(&refundRecord)
 
 	// Update order status after successful refund initiation
 	order.Status = models.OrderRefunded
 	amountRefunded := float32(refundAmount)
 	order.AmountRefunded = &amountRefunded
-	now := time.Now()
-	order.RefundedAt = &now
+	refundedAt := time.Now()
+	order.RefundedAt = &refundedAt
 
 	if refundAmount < float64(order.Amount) {
 		order.Status = models.OrderPartialRefund

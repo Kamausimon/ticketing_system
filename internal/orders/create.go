@@ -80,6 +80,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		IsBusiness:        req.IsBusiness,
 		Amount:            float32(calculation.Subtotal),
 		TaxAmount:         float32(calculation.TaxAmount),
+		TotalAmount:       models.Money(calculation.TotalAmount * 100), // Convert to cents
 		Currency:          calculation.Currency,
 		Status:            models.OrderPending,
 		PaymentStatus:     models.PaymentPending,
