@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 
 	"github.com/gorilla/mux"
@@ -20,14 +21,36 @@ const (
 
 // ProcessRefund processes an approved refund through the payment gateway
 func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
-	// Get user role from context (admin/organizer only)
-	userRole, ok := r.Context().Value("role").(string)
-	if !ok || (userRole != "admin" && userRole != "organizer") {
+	// Get user ID from token
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// Get user details to check role
+	var user models.User
+	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	userRole := string(user.Role)
+	if userRole != "admin" && userRole != "organizer" {
 		writeError(w, http.StatusForbidden, "Access denied")
 		return
 	}
 
-	organizerID, _ := r.Context().Value("organizer_id").(uint)
+	var organizerID uint
+	if userRole == "organizer" {
+		// Get organizer profile for this user
+		var organizer models.Organizer
+		if err := h.db.Where("user_id = ?", userID).First(&organizer).Error; err != nil {
+			writeError(w, http.StatusForbidden, "Organizer profile not found")
+			return
+		}
+		organizerID = organizer.ID
+	}
 
 	// Get refund ID from URL
 	vars := mux.Vars(r)
@@ -190,9 +213,22 @@ func (h *RefundHandler) initiateIntasendRefund(payment *models.PaymentRecord, re
 
 // RetryFailedRefund allows retrying a failed refund
 func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request) {
-	// Get user role from context (admin only)
-	userRole, ok := r.Context().Value("role").(string)
-	if !ok || userRole != "admin" {
+	// Get user ID from token
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// Get user details to check role (admin only)
+	var user models.User
+	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	userRole := string(user.Role)
+	if userRole != "admin" {
 		writeError(w, http.StatusForbidden, "Access denied")
 		return
 	}
@@ -276,14 +312,36 @@ func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request
 
 // GetRefundStatistics returns refund statistics for an organizer or admin
 func (h *RefundHandler) GetRefundStatistics(w http.ResponseWriter, r *http.Request) {
-	// Get user role from context
-	userRole, ok := r.Context().Value("role").(string)
-	if !ok || (userRole != "admin" && userRole != "organizer") {
+	// Get user ID from token
+	userID := middleware.GetUserIDFromToken(r)
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// Get user details to check role
+	var user models.User
+	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	userRole := string(user.Role)
+	if userRole != "admin" && userRole != "organizer" {
 		writeError(w, http.StatusForbidden, "Access denied")
 		return
 	}
 
-	organizerID, _ := r.Context().Value("organizer_id").(uint)
+	var organizerID uint
+	if userRole == "organizer" {
+		// Get organizer profile for this user
+		var organizer models.Organizer
+		if err := h.db.Where("user_id = ?", userID).First(&organizer).Error; err != nil {
+			writeError(w, http.StatusForbidden, "Organizer profile not found")
+			return
+		}
+		organizerID = organizer.ID
+	}
 
 	query := h.db.Model(&models.RefundRecord{})
 	if userRole == "organizer" && organizerID != 0 {

@@ -537,8 +537,6 @@ func main() {
 	router.HandleFunc("/refunds/{id}", apiLimiter.HandlerFunc(refundHandler.GetRefundStatus)).Methods(http.MethodGet)
 	router.HandleFunc("/refunds/{id}/cancel", paymentLimiter.HandlerFunc(refundHandler.CancelRefundRequest)).Methods(http.MethodPost)
 
-	// all done above this
-
 	// Refund routes - Admin/Organizer
 	router.HandleFunc("/admin/refunds/pending", refundHandler.ListPendingRefunds).Methods(http.MethodGet)
 	router.HandleFunc("/admin/refunds/{id}", refundHandler.GetRefundDetails).Methods(http.MethodGet)
@@ -546,6 +544,8 @@ func main() {
 	router.HandleFunc("/admin/refunds/{id}/process", refundHandler.ProcessRefund).Methods(http.MethodPost)
 	router.HandleFunc("/admin/refunds/{id}/retry", refundHandler.RetryFailedRefund).Methods(http.MethodPost)
 	router.HandleFunc("/admin/refunds/statistics", refundHandler.GetRefundStatistics).Methods(http.MethodGet)
+
+	// all done above this
 
 	// Refund routes - Organizer
 	router.HandleFunc("/organizers/refunds", refundHandler.ListRefundsByOrganizer).Methods(http.MethodGet)
