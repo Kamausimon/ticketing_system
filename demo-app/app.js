@@ -171,9 +171,16 @@ async function loadEvents(search = '') {
             const isPast = eventDate < new Date();
             const statusBadge = isPast ? '<span class="badge badge-past">Past Event</span>' : '<span class="badge badge-upcoming">Upcoming</span>';
             
+            // Get event image
+            let imageStyle = `background: linear-gradient(135deg, ${isPast ? '#94a3b8, #64748b' : '#6366f1, #8b5cf6'});`;
+            if (event.images && event.images.length > 0) {
+                const imageUrl = `${API_URL}/${event.images[0].image_path}`;
+                imageStyle = `background: url('${imageUrl}') center/cover, linear-gradient(135deg, ${isPast ? '#94a3b8, #64748b' : '#6366f1, #8b5cf6'});`;
+            }
+            
             return `
             <div class="event-card ${isPast ? 'event-past' : ''}" onclick="showEventDetails(${event.id})">
-                <div class="event-image" style="background: linear-gradient(135deg, ${isPast ? '#94a3b8, #64748b' : '#6366f1, #8b5cf6'});">
+                <div class="event-image" style="${imageStyle}">
                     ${statusBadge}
                 </div>
                 <div class="event-content">
@@ -197,6 +204,9 @@ async function showEventDetails(eventId) {
         const event = await apiRequest(`/events/${eventId}`);
         const eventDate = new Date(event.start_date || event.event_date);
         const isPast = eventDate < new Date();
+        
+        // Store current event for purchase
+        window.currentEvent = event;
         
         const eventDetails = `
             <div class="event-detail-header">
@@ -238,11 +248,29 @@ async function showEventDetails(eventId) {
                     <p style="margin: 0;">${event.pre_order_message_display}</p>
                 </div>
             ` : ''}
-            <div class="purchase-section">
-                <p><strong>📧 Demo Note:</strong> This is a demo interface. To purchase tickets, please use the full ticketing platform with payment integration.</p>
-                ${event.tags ? `<p style="margin-top: 0.5rem;"><strong>Tags:</strong> ${event.tags}</p>` : ''}
-                ${event.enable_offline_payment ? '<p style="color: var(--success-color); font-size: 0.9rem;">✓ Offline payment available</p>' : ''}
-            </div>
+            ${state.token && !isPast ? `
+                <div class="purchase-section" style="background: var(--bg-color); padding: 1.5rem; border-radius: 8px; margin-top: 1rem;">
+                    <h3 style="margin-bottom: 1rem;">🎫 Purchase Demo Tickets</h3>
+                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">This is a demo. In production, this would integrate with ticket classes and payment gateways.</p>
+                    <div class="quantity-selector" style="margin: 1rem 0;">
+                        <label style="display: block; margin-bottom: 0.5rem;"><strong>Quantity:</strong></label>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <button class="btn btn-secondary" onclick="changeTicketQuantity(-1)">-</button>
+                            <input type="number" id="demoTicketQuantity" value="1" min="1" max="10" style="width: 80px; text-align: center; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px;">
+                            <button class="btn btn-secondary" onclick="changeTicketQuantity(1)">+</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-block" onclick="simulateTicketPurchase(${event.id})" style="margin-top: 1rem;">
+                        🛒 Simulate Purchase (Demo)
+                    </button>
+                    ${event.enable_offline_payment ? '<p style="color: var(--success-color); font-size: 0.9rem; margin-top: 0.5rem;">✓ Offline payment available</p>' : ''}
+                </div>
+            ` : !state.token ? `
+                <div class="purchase-section">
+                    <p>Please <a href="#" onclick="hideModal('eventModal'); showModal('loginModal'); return false;" style="color: var(--primary-color); text-decoration: none; font-weight: 600;">login</a> to explore ticket purchasing.</p>
+                </div>
+            ` : ''}
+            ${event.tags ? `<p style="margin-top: 1rem; color: var(--text-secondary);"><strong>Tags:</strong> ${event.tags}</p>` : ''}
         `;
 
         document.getElementById('eventDetails').innerHTML = eventDetails;
@@ -250,6 +278,27 @@ async function showEventDetails(eventId) {
     } catch (error) {
         showToast(error.message, 'error');
     }
+}
+
+function changeTicketQuantity(delta) {
+    const input = document.getElementById('demoTicketQuantity');
+    if (!input) return;
+    
+    const newValue = parseInt(input.value) + delta;
+    const max = parseInt(input.max);
+    const min = parseInt(input.min);
+    
+    if (newValue >= min && newValue <= max) {
+        input.value = newValue;
+    }
+}
+
+function simulateTicketPurchase(eventId) {
+    const quantity = document.getElementById('demoTicketQuantity')?.value || 1;
+    const event = window.currentEvent;
+    
+    showToast(`Demo: Successfully "purchased" ${quantity} ticket(s) for ${event.title}! In production, this would process payment and generate actual tickets.`, 'success');
+    hideModal('eventModal');
 }
 
 function changeQuantity(delta) {
