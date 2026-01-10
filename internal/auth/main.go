@@ -296,7 +296,7 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		h.activityLogger.LogLogin(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
 	}
 
-	expirationDuration := time.Hour
+	expirationDuration := time.Hour * 2
 	token, err := MakeJWT(user.ID, tokenSecret, expirationDuration)
 	if err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "error generating jwt token")
