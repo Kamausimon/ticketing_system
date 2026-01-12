@@ -100,13 +100,23 @@ async function login(email, password) {
 
 async function signup(name, email, password, phone) {
     try {
+        // Split name into first and last name
+        const nameParts = name.trim().split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || nameParts[0]; // Use first name as last name if only one word
+        
+        // Generate username from email (part before @)
+        const username = email.split('@')[0].toLowerCase();
+        
         await apiRequest('/register', {
             method: 'POST',
             body: JSON.stringify({
-                name,
+                first_name: firstName,
+                last_name: lastName,
+                username: username,
                 email,
                 password,
-                phone: phone || undefined
+                phone: phone && phone.trim() ? phone.trim() : null
             })
         });
 
@@ -115,6 +125,7 @@ async function signup(name, email, password, phone) {
         showModal('loginModal');
     } catch (error) {
         showToast(error.message, 'error');
+        console.error(error)
     }
 }
 

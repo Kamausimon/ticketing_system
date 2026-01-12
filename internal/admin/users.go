@@ -29,7 +29,7 @@ type UserListResponse struct {
 	LastName      string    `json:"last_name"`
 	Email         string    `json:"email"`
 	Username      string    `json:"username"`
-	Phone         string    `json:"phone"`
+	Phone         *string   `json:"phone"`
 	Role          string    `json:"role"`
 	IsActive      bool      `json:"is_active"`
 	EmailVerified bool      `json:"email_verified"`

@@ -41,7 +41,7 @@ type User struct {
 	FirstName        string  `gorm:"not null"`
 	LastName         string  `gorm:"not null"`
 	Username         string  `gorm:"uniqueIndex;not null"`
-	Phone            string  `gorm:"uniqueIndex;not null"`
+	Phone            *string `gorm:"uniqueIndex"`
 	Email            string  `gorm:"uniqueIndex;not null"`
 	Password         string  `gorm:"not null"`
 	ConfirmationCode string

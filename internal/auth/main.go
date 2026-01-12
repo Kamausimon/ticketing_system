@@ -100,34 +100,53 @@ func (h *AuthHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create account first
-	account := models.Account{
-		FirstName: strings.TrimSpace(req.FirstName),
-		LastName:  strings.TrimSpace(req.LastName),
-		Email:     normalizedEmail,
-		IsActive:  true,
-		IsBanned:  false,
-	}
+	// Variables to hold created records
+	var user models.User
+	var account models.Account
 
-	if err := h.db.Create(&account).Error; err != nil {
-		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create account")
-		return
-	}
-	user := models.User{
-		AccountID:     account.ID,
-		FirstName:     strings.TrimSpace(req.FirstName),
-		LastName:      strings.TrimSpace(req.LastName),
-		Username:      normalizedUsername,
-		Phone:         req.Phone,
-		Email:         normalizedEmail,
-		Password:      string(hashedPassword),
-		Role:          models.RoleCustomer,
-		IsActive:      true,
-		Isconfirmed:   false,
-		EmailVerified: false, // Email not verified on signup
-	}
+	// Create account and user in a transaction
+	err = h.db.Transaction(func(tx *gorm.DB) error {
+		account = models.Account{
+			FirstName: strings.TrimSpace(req.FirstName),
+			LastName:  strings.TrimSpace(req.LastName),
+			Email:     normalizedEmail,
+			IsActive:  true,
+			IsBanned:  false,
+		}
 
-	if err := h.db.Create(&user).Error; err != nil {
+		if err := tx.Create(&account).Error; err != nil {
+			return err
+		}
+
+		// Handle phone - use nil if empty (field is nullable in DB)
+		var phone *string
+		if req.Phone != "" {
+			trimmedPhone := strings.TrimSpace(req.Phone)
+			phone = &trimmedPhone
+		}
+
+		user = models.User{
+			AccountID:     account.ID,
+			FirstName:     strings.TrimSpace(req.FirstName),
+			LastName:      strings.TrimSpace(req.LastName),
+			Username:      normalizedUsername,
+			Phone:         phone,
+			Email:         normalizedEmail,
+			Password:      string(hashedPassword),
+			Role:          models.RoleCustomer,
+			IsActive:      true,
+			Isconfirmed:   false,
+			EmailVerified: false, // Email not verified on signup
+		}
+
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
