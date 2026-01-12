@@ -124,7 +124,7 @@ func (s *StorageService) uploadToS3(data []byte, key, contentType string) (*Uplo
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(data),
 		ContentType: aws.String(contentType),
-		ACL:         "public-read",
+		// ACL removed - bucket policy handles public access
 	})
 	if err != nil {
 		return nil, err

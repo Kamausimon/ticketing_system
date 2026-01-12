@@ -168,14 +168,27 @@ async function loadEvents(search = '') {
 
         eventsList.innerHTML = state.events.map(event => {
             const eventDate = new Date(event.start_date || event.event_date);
-            const isPast = eventDate < new Date();
+            const now = new Date();
+            const isPast = eventDate.getTime() < now.getTime();
             const statusBadge = isPast ? '<span class="badge badge-past">Past Event</span>' : '<span class="badge badge-upcoming">Upcoming</span>';
             
-            // Get event image
-            let imageStyle = `background: linear-gradient(135deg, ${isPast ? '#94a3b8, #64748b' : '#6366f1, #8b5cf6'});`;
+            // Get event image - use category-based colors as fallback
+            const categoryColors = {
+                'music': '#8b5cf6, #6366f1',
+                'art': '#ec4899, #f43f5e',
+                'sports': '#10b981, #059669',
+                'tech': '#06b6d4, #0891b2',
+                'food': '#f59e0b, #d97706',
+                'default': '#6366f1, #8b5cf6'
+            };
+            const colors = isPast ? '#94a3b8, #64748b' : (categoryColors[event.category?.toLowerCase()] || categoryColors.default);
+            
+            let imageStyle = `background: linear-gradient(135deg, ${colors});`;
             if (event.images && event.images.length > 0) {
-                const imageUrl = `${API_URL}/${event.images[0].image_path}`;
-                imageStyle = `background: url('${imageUrl}') center/cover, linear-gradient(135deg, ${isPast ? '#94a3b8, #64748b' : '#6366f1, #8b5cf6'});`;
+                const imagePath = event.images[0].image_path;
+                // S3 URLs start with http, local paths need demo app server
+                const imageUrl = imagePath.startsWith('https') ? imagePath : `http://172.22.29.124:3000/${imagePath}`;
+                imageStyle = `background-image: url('${imageUrl}'); background-size: cover; background-position: center;`;
             }
             
             return `
@@ -203,7 +216,8 @@ async function showEventDetails(eventId) {
     try {
         const event = await apiRequest(`/events/${eventId}`);
         const eventDate = new Date(event.start_date || event.event_date);
-        const isPast = eventDate < new Date();
+        const now = new Date();
+        const isPast = eventDate.getTime() < now.getTime();
         
         // Store current event for purchase
         window.currentEvent = event;
@@ -461,9 +475,28 @@ async function loadOrganizerDashboard() {
             return;
         }
 
-        organizerEvents.innerHTML = state.organizerEvents.map(event => `
+        organizerEvents.innerHTML = state.organizerEvents.map(event => {
+            // Get event image
+            const categoryColors = {
+                'music': '#8b5cf6, #6366f1',
+                'art': '#ec4899, #f43f5e',
+                'sports': '#10b981, #059669',
+                'tech': '#06b6d4, #0891b2',
+                'food': '#f59e0b, #d97706',
+                'default': '#6366f1, #8b5cf6'
+            };
+            const colors = categoryColors[event.category?.toLowerCase()] || categoryColors.default;
+            
+            let imageStyle = `background: linear-gradient(135deg, ${colors});`;
+            if (event.images && event.images.length > 0) {
+                const imagePath = event.images[0].image_path;
+                const imageUrl = imagePath.startsWith('http') ? imagePath : `http://172.22.29.124:3000/${imagePath}`;
+                imageStyle = `background-image: url('${imageUrl}'); background-size: cover; background-position: center;`;
+            }
+            
+            return `
             <div class="event-card">
-                <div class="event-image"></div>
+                <div class="event-image" style="${imageStyle}"></div>
                 <div class="event-content">
                     <h3>${event.name}</h3>
                     <div class="event-date">📅 ${formatDate(event.event_date)}</div>
@@ -477,7 +510,8 @@ async function loadOrganizerDashboard() {
                     </button>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
     } catch (error) {
         document.getElementById('organizerStats').innerHTML = `<div class="empty-state"><h3>Error loading dashboard</h3><p>${error.message}</p></div>`;
     }

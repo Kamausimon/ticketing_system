@@ -237,6 +237,10 @@ func main() {
 	// Expose Prometheus metrics endpoint
 	router.Handle("/metrics", promhttp.Handler())
 
+	// Serve static files (uploads) - must be before other routes
+	uploadsDir := "./uploads"
+	router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadsDir)))).Methods(http.MethodGet, http.MethodOptions)
+
 	//auth routes - with rate limiting
 	router.HandleFunc("/register", authLimiter.HandlerFunc(authHandler.RegisterUser)).Methods(http.MethodPost)
 	router.HandleFunc("/login", loginLimiter.HandlerFunc(authHandler.LoginUser)).Methods(http.MethodPost)
