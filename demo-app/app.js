@@ -56,6 +56,9 @@ async function apiRequest(endpoint, options = {}) {
 
     if (state.token) {
         defaultOptions.headers['Authorization'] = `Bearer ${state.token}`;
+        console.log("authorization token added to request headers", state.token);
+    } else {
+        console.log("no authorization token present");
     }
 
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -78,11 +81,12 @@ async function apiRequest(endpoint, options = {}) {
 // Authentication Functions
 async function login(email, password) {
     try {
-        const data = await apiRequest('/login', {
+        const response = await apiRequest('/login', {
             method: 'POST',
             body: JSON.stringify({ email, password })
         });
 
+        const data = await response.json();
         state.token = data.token;
         state.user = { email, id: data.user_id };
         localStorage.setItem('token', data.token);
@@ -96,6 +100,7 @@ async function login(email, password) {
         checkOrganizerStatus();
     } catch (error) {
         showToast(error.message, 'error');
+        console.error(error);
     }
 }
 
