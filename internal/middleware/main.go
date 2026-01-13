@@ -64,25 +64,24 @@ func GetUserIDFromToken(r *http.Request) uint {
 }
 
 func GetUserIDFromTokenWithError(r *http.Request) (uint, error) {
-	err := godotenv.Load(".env")
-	if err != nil {
-		return 0, fmt.Errorf("error reading env variables: %w", err)
-	}
+	// Try to load .env file (fails silently in production where env vars are set directly)
+	_ = godotenv.Load(".env")
+
 	tokenSecret := os.Getenv("JWTSECRET")
 	if tokenSecret == "" {
 		return 0, fmt.Errorf("JWTSECRET not configured")
 	}
-	
+
 	bearerToken, err := GetBearerToken(r.Header)
 	if err != nil {
 		return 0, fmt.Errorf("error getting auth header: %w", err)
 	}
-	
+
 	userID, err := ValidateJWT(bearerToken, tokenSecret)
 	if err != nil {
 		return 0, fmt.Errorf("error validating token: %w", err)
 	}
-	
+
 	return userID, nil
 }
 
