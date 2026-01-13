@@ -1,5 +1,6 @@
 // Configuration
-const API_URL = 'http://172.22.29.124:8080';
+// Change this to your Railway backend URL when deploying
+const API_URL = window.RAILWAY_API_URL || 'http://localhost:8080';
 
 // State Management
 const state = {
