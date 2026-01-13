@@ -12,6 +12,13 @@ const state = {
     organizerEvents: []
 };
 
+// Debug: Log initial state
+console.log('Initial state loaded:', {
+    hasToken: !!state.token,
+    tokenPreview: state.token ? state.token.substring(0, 20) + '...' : null,
+    user: state.user
+});
+
 // Utility Functions
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
@@ -56,9 +63,9 @@ async function apiRequest(endpoint, options = {}) {
 
     if (state.token) {
         defaultOptions.headers['Authorization'] = `Bearer ${state.token}`;
-        console.log("authorization token added to request headers", state.token);
+        console.log(`[${endpoint}] Authorization token added`);
     } else {
-        console.log("no authorization token present");
+        console.log(`[${endpoint}] No authorization token present`);
     }
 
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -72,10 +79,13 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ message: 'Request failed' }));
+        console.error(`[${endpoint}] Request failed:`, response.status, error);
         throw new Error(error.message || `HTTP ${response.status}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    console.log(`[${endpoint}] Response:`, data);
+    return data;
 }
 
 // Authentication Functions
@@ -86,10 +96,19 @@ async function login(email, password) {
             body: JSON.stringify({ email, password })
         });
 
+        console.log('Login response:', data);
+
+        if (!data.token) {
+            throw new Error('No token received from server');
+        }
+
         state.token = data.token;
         state.user = { email, id: data.user_id };
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(state.user));
+
+        console.log('Token saved:', state.token);
+        console.log('User saved:', state.user);
 
         showToast('Login successful!');
         updateUI();
@@ -99,7 +118,7 @@ async function login(email, password) {
         checkOrganizerStatus();
     } catch (error) {
         showToast(error.message, 'error');
-        console.error(error);
+        console.error('Login error:', error);
     }
 }
 
