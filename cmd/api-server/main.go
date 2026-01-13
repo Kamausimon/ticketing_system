@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 	"ticketing_system/internal/accounts"
 	"ticketing_system/internal/admin"
 	"ticketing_system/internal/analytics"
@@ -33,6 +32,7 @@ import (
 	"ticketing_system/internal/tickets"
 	"ticketing_system/internal/venues"
 	"ticketing_system/pkg/ratelimit"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -65,12 +65,12 @@ func main() {
 		&models.RecoveryCode{},
 		&models.TwoFactorAttempt{},
 		&models.TwoFactorSession{},
-		
+
 		// Organizers & Venues
 		&models.Organizer{},
 		&models.Venue{},
 		&models.EventVenues{},
-		
+
 		// Events & Tickets
 		&models.Event{},
 		&models.EventImages{},
@@ -78,7 +78,7 @@ func main() {
 		&models.TicketClass{},
 		&models.Ticket{},
 		&models.TicketTransferHistory{},
-		
+
 		// Orders & Payments
 		&models.Order{},
 		&models.OrderItem{},
@@ -88,14 +88,14 @@ func main() {
 		&models.PaymentGateway{},
 		&models.AccountPaymentGateway{},
 		&models.WebhookLog{},
-		
+
 		// Refunds & Settlements
 		&models.RefundRecord{},
 		&models.RefundLineItem{},
 		&models.SettlementRecord{},
 		&models.SettlementItem{},
 		&models.PayoutAccount{},
-		
+
 		// Promotions & Inventory
 		&models.Promotion{},
 		&models.PromotionUsage{},
@@ -103,19 +103,19 @@ func main() {
 		&models.PromotionRule{},
 		&models.WaitlistEntry{},
 		&models.ReservedTicket{},
-		
+
 		// Attendees & Support
 		&models.Attendee{},
 		&models.SupportTicket{},
 		&models.SupportTicketComment{},
-		
+
 		// Preferences & Settings
 		&models.Timezone{},
 		&models.Currency{},
 		&models.DateFormat{},
 		&models.DateTimeFormat{},
 		&models.NotificationPreferences{},
-		
+
 		// Activity & Metrics
 		&models.AccountActivity{},
 		&models.LoginHistory{},
@@ -304,7 +304,7 @@ func main() {
 	// Health check endpoint - for monitoring and auto-rollback
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		// Check database connection
 		dbHealthy := true
 		var dbError string
@@ -312,7 +312,7 @@ func main() {
 			dbHealthy = false
 			dbError = err.Error()
 		}
-		
+
 		// Determine overall health
 		status := "healthy"
 		statusCode := http.StatusOK
@@ -320,7 +320,7 @@ func main() {
 			status = "unhealthy"
 			statusCode = http.StatusServiceUnavailable
 		}
-		
+
 		response := map[string]interface{}{
 			"status":    status,
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
@@ -330,11 +330,11 @@ func main() {
 				},
 			},
 		}
-		
+
 		if dbError != "" {
 			response["checks"].(map[string]interface{})["database"].(map[string]interface{})["error"] = dbError
 		}
-		
+
 		w.WriteHeader(statusCode)
 		json.NewEncoder(w).Encode(response)
 	}).Methods(http.MethodGet)
