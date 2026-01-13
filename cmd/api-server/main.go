@@ -48,22 +48,81 @@ func main() {
 
 	DB := database.Init()
 
+	// Run migrations for all models
 	err := DB.AutoMigrate(
+		// Core User & Auth
 		&models.User{},
+		&models.Account{},
 		&models.EmailVerification{},
-		&models.WaitlistEntry{},
+		&models.PasswordReset{},
+		&models.PasswordResetAttempt{},
+		&models.TwoFactorAuth{},
+		&models.RecoveryCode{},
+		&models.TwoFactorAttempt{},
+		&models.TwoFactorSession{},
+		
+		// Organizers & Venues
+		&models.Organizer{},
+		&models.Venue{},
+		&models.EventVenues{},
+		
+		// Events & Tickets
+		&models.Event{},
+		&models.EventImages{},
+		&models.EventStats{},
+		&models.TicketClass{},
+		&models.Ticket{},
 		&models.TicketTransferHistory{},
+		
+		// Orders & Payments
+		&models.Order{},
+		&models.OrderItem{},
+		&models.PaymentRecord{},
+		&models.PaymentTransaction{},
+		&models.PaymentMethod{},
+		&models.PaymentGateway{},
+		&models.AccountPaymentGateway{},
+		&models.WebhookLog{},
+		
+		// Refunds & Settlements
+		&models.RefundRecord{},
+		&models.RefundLineItem{},
+		&models.SettlementRecord{},
+		&models.SettlementItem{},
+		&models.PayoutAccount{},
+		
+		// Promotions & Inventory
+		&models.Promotion{},
+		&models.PromotionUsage{},
+		&models.PromotionCache{},
+		&models.PromotionRule{},
+		&models.WaitlistEntry{},
+		&models.ReservedTicket{},
+		
+		// Attendees & Support
+		&models.Attendee{},
+		&models.SupportTicket{},
+		&models.SupportTicketComment{},
+		
+		// Preferences & Settings
 		&models.Timezone{},
 		&models.Currency{},
 		&models.DateFormat{},
 		&models.DateTimeFormat{},
-		&models.SupportTicket{},
-		&models.SupportTicketComment{},
+		&models.NotificationPreferences{},
+		
+		// Activity & Metrics
+		&models.AccountActivity{},
+		&models.LoginHistory{},
+		&models.SystemMetric{},
+		&models.EventMetric{},
+		&models.UserEngagementMetric{},
+		&models.SecurityMetric{},
 	)
 	if err != nil {
-		fmt.Printf("Migration failed: %v\n", err)
+		fmt.Printf("❌ Migration failed: %v\n", err)
 	} else {
-		fmt.Println("✅ Database migration completed successfully")
+		fmt.Println("✅ Database migration completed successfully - all tables created")
 	}
 
 	// Seed preferences data (timezones, currencies, date formats)
