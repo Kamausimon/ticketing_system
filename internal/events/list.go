@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,26 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Parse query parameters
 	params := parseEventListParams(r)
+
+	// Generate cache key based on params
+	cacheKey := fmt.Sprintf("events:list:page:%d:limit:%d", params.Page, params.Limit)
+	if params.Category != nil {
+		cacheKey += fmt.Sprintf(":cat:%s", *params.Category)
+	}
+	if params.Location != nil {
+		cacheKey += fmt.Sprintf(":loc:%s", *params.Location)
+	}
+	if params.Search != nil {
+		cacheKey += fmt.Sprintf(":search:%s", *params.Search)
+	}
+
+	// Try to get from cache
+	if h.cache != nil {
+		if cachedData, err := h.cache.GetEventsList(cacheKey); err == nil {
+			w.Write(cachedData)
+			return
+		}
+	}
 
 	// Build the query
 	query := h.db.Model(&models.Event{}).
@@ -117,6 +138,13 @@ func (h *EventHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		Page:       params.Page,
 		Limit:      params.Limit,
 		TotalPages: totalPages,
+	}
+
+	// Cache the response for 5 minutes (if cache is available)
+	if h.cache != nil {
+		if responseData, err := json.Marshal(response); err == nil {
+			h.cache.SetEventsList(cacheKey, responseData, 5*time.Minute)
+		}
 	}
 
 	json.NewEncoder(w).Encode(response)

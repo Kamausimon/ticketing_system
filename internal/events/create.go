@@ -142,6 +142,11 @@ func (h *EventHandler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate events list cache since we added a new event
+	if h.cache != nil {
+		h.cache.InvalidateEventsList()
+	}
+
 	// Track metrics for event creation
 	if h.metrics != nil {
 		h.metrics.TrackEventCreated(string(req.Category), fmt.Sprintf("%d", organizer.ID))

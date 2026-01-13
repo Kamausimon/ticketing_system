@@ -2,6 +2,7 @@ package events
 
 import (
 	"ticketing_system/internal/analytics"
+	"ticketing_system/internal/cache"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/storage"
 	"time"
@@ -14,14 +15,16 @@ type EventHandler struct {
 	db      *gorm.DB
 	metrics *analytics.PrometheusMetrics
 	storage *storage.StorageService
+	cache   *cache.EventsCache
 }
 
 // NewEventHandler creates a new event handler
-func NewEventHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, storageService *storage.StorageService) *EventHandler {
+func NewEventHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, storageService *storage.StorageService, eventsCache *cache.EventsCache) *EventHandler {
 	return &EventHandler{
 		db:      db,
 		metrics: metrics,
 		storage: storageService,
+		cache:   eventsCache,
 	}
 }
 

@@ -153,16 +153,20 @@ func main() {
 
 	// Initialize Redis session manager
 	var sessionManager *cache.SessionManager
+	var eventsCache *cache.EventsCache
 	if cfg != nil && cfg.Redis.Enabled {
 		sessionManager = cache.NewSessionManager(
 			cfg.Redis.Addr,
 			cfg.Redis.Password,
 			cfg.Redis.DB,
 		)
+		eventsCache = cache.NewEventsCache(sessionManager)
 		fmt.Println("✅ Redis session manager initialized (with in-memory fallback)")
+		fmt.Println("✅ Events cache initialized")
 	} else {
 		fmt.Println("⚠️  Redis disabled - using in-memory sessions only")
 		sessionManager = cache.NewSessionManager("", "", 0) // Will only use fallback
+		eventsCache = cache.NewEventsCache(sessionManager)
 	}
 	// Note: sessionManager is available for future use in auth/session management
 	_ = sessionManager // Suppress unused variable warning
@@ -223,7 +227,7 @@ func main() {
 	} else {
 		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil, encryptionService, storageService)
 	}
-	eventHandler := events.NewEventHandler(DB, metrics, storageService)
+	eventHandler := events.NewEventHandler(DB, metrics, storageService, eventsCache)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
 	orderHandler := orders.NewOrderHandler(DB, metrics, paymentHandler, notificationService)

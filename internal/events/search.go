@@ -2,10 +2,12 @@ package events
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"time"
 )
 
 // SearchEvents handles dedicated event search with advanced filtering
@@ -21,6 +23,15 @@ func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Parse other parameters (reuse existing parser)
 	params := parseEventListParams(r)
+
+	// Try cache first
+	cacheKey := fmt.Sprintf("search:%s:page:%d", searchQuery, params.Page)
+	if h.cache != nil {
+		if cachedData, err := h.cache.GetSearchResults(searchQuery); err == nil {
+			w.Write(cachedData)
+			return
+		}
+	}
 
 	// Build the query
 	query := h.db.Model(&models.Event{}).
@@ -106,6 +117,13 @@ func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		Page:       params.Page,
 		Limit:      params.Limit,
 		TotalPages: totalPages,
+	}
+
+	// Cache search results for 2 minutes
+	if h.cache != nil {
+		if responseData, err := json.Marshal(response); err == nil {
+			h.cache.SetSearchResults(searchQuery, responseData, 2*time.Minute)
+		}
 	}
 
 	json.NewEncoder(w).Encode(response)
