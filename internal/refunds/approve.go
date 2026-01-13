@@ -15,7 +15,11 @@ import (
 // ListPendingRefunds returns all refunds awaiting approval (admin/organizer only)
 func (h *RefundHandler) ListPendingRefunds(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -82,7 +86,11 @@ func (h *RefundHandler) ListPendingRefunds(w http.ResponseWriter, r *http.Reques
 // ApproveRefund allows admin/organizer to approve or reject a refund request
 func (h *RefundHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -223,7 +231,11 @@ func (h *RefundHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 // GetRefundDetails returns detailed information about a refund (admin/organizer)
 func (h *RefundHandler) GetRefundDetails(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -315,7 +327,11 @@ func (h *RefundHandler) GetRefundDetails(w http.ResponseWriter, r *http.Request)
 // ListRefundsByOrganizer returns all refunds for an organizer's events
 func (h *RefundHandler) ListRefundsByOrganizer(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return

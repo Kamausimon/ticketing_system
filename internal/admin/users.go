@@ -422,7 +422,11 @@ func (h *UserHandler) GetUserStats(w http.ResponseWriter, r *http.Request) {
 
 // isAdmin checks if the current user is an admin
 func (h *UserHandler) isAdmin(w http.ResponseWriter, r *http.Request) bool {
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return false
+	}
 
 	var user models.User
 	if err := h.db.Where("id = ?", userID).First(&user).Error; err != nil {

@@ -75,7 +75,11 @@ type DisableRequest struct {
 func (h *TwoFactorHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -172,7 +176,11 @@ func (h *TwoFactorHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 func (h *TwoFactorHandler) VerifySetup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -285,7 +293,11 @@ func (h *TwoFactorHandler) VerifySetup(w http.ResponseWriter, r *http.Request) {
 func (h *TwoFactorHandler) VerifyLogin(w http.ResponseWriter, r *http.Request, tokenSecret string) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -393,7 +405,11 @@ func (h *TwoFactorHandler) VerifyLogin(w http.ResponseWriter, r *http.Request, t
 func (h *TwoFactorHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -479,7 +495,11 @@ func (h *TwoFactorHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 func (h *TwoFactorHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -514,7 +534,11 @@ func (h *TwoFactorHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 func (h *TwoFactorHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -671,7 +695,11 @@ func (h *TwoFactorHandler) logAttempt(userID uint, success bool, failureType str
 func (h *TwoFactorHandler) GetRecentAttempts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
+	if authErr != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

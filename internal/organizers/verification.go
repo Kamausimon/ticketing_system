@@ -41,7 +41,11 @@ type PendingOrganizerResponse struct {
 func (h *OrganizerHandler) GetPendingOrganizers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Check if user is admin
 	var user models.User
@@ -83,7 +87,11 @@ func (h *OrganizerHandler) GetPendingOrganizers(w http.ResponseWriter, r *http.R
 func (h *OrganizerHandler) VerifyOrganizer(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Check if user is admin
 	var user models.User
@@ -197,7 +205,11 @@ func (h *OrganizerHandler) VerifyOrganizer(w http.ResponseWriter, r *http.Reques
 func (h *OrganizerHandler) SendVerificationEmail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get organizer
 	var user models.User

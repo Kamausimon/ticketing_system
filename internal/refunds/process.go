@@ -22,7 +22,11 @@ const (
 // ProcessRefund processes an approved refund through the payment gateway
 func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -214,7 +218,11 @@ func (h *RefundHandler) initiateIntasendRefund(payment *models.PaymentRecord, re
 // RetryFailedRefund allows retrying a failed refund
 func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -313,7 +321,11 @@ func (h *RefundHandler) RetryFailedRefund(w http.ResponseWriter, r *http.Request
 // GetRefundStatistics returns refund statistics for an organizer or admin
 func (h *RefundHandler) GetRefundStatistics(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return

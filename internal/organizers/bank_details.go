@@ -32,7 +32,11 @@ type BankDetailsResponse struct {
 func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Parse request
 	var req BankDetailsRequest
@@ -109,7 +113,11 @@ func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Requ
 func (h *OrganizerHandler) GetBankDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get user and organizer
 	var user models.User

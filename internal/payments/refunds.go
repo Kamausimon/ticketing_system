@@ -156,7 +156,11 @@ func (h *PaymentHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authenticated user ID
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return

@@ -16,7 +16,11 @@ import (
 func (h *AccountHandler) GetAccountActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -278,7 +282,11 @@ func parseActivityFilter(r *http.Request) ActivityFilter {
 func (h *AccountHandler) GetAccountStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -301,7 +309,11 @@ func (h *AccountHandler) GetAccountStats(w http.ResponseWriter, r *http.Request)
 func (h *AccountHandler) LogActivity(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -338,7 +350,11 @@ func (h *AccountHandler) LogActivity(w http.ResponseWriter, r *http.Request) {
 func (h *AccountHandler) ClearActivityLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

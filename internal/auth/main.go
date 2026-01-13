@@ -349,7 +349,11 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) LogoutUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	var user models.User
 	if err := h.db.First(&user, userID).Error; err == nil {
 		// Log logout activity
@@ -875,7 +879,11 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 func (h *AuthHandler) CheckEmailVerificationStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return

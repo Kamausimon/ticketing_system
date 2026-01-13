@@ -21,7 +21,11 @@ func (h *TicketClassHandler) ListTicketClasses(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -88,7 +92,11 @@ func (h *TicketClassHandler) GetTicketClass(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

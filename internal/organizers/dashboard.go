@@ -44,7 +44,11 @@ type QuickStats struct {
 func (h *OrganizerHandler) GetOrganizerDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get organizer
 	var user models.User
@@ -138,7 +142,11 @@ func (h *OrganizerHandler) GetOrganizerDashboard(w http.ResponseWriter, r *http.
 func (h *OrganizerHandler) GetQuickStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get organizer
 	var user models.User

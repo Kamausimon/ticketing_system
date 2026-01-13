@@ -16,7 +16,11 @@ import (
 func (h *TicketHandler) GetTicketDetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -60,7 +64,11 @@ func (h *TicketHandler) GetTicketDetails(w http.ResponseWriter, r *http.Request)
 func (h *TicketHandler) GetTicketByNumber(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -101,7 +109,11 @@ func (h *TicketHandler) GetTicketByNumber(w http.ResponseWriter, r *http.Request
 
 // DownloadTicketPDF handles downloading the ticket as a PDF
 func (h *TicketHandler) DownloadTicketPDF(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

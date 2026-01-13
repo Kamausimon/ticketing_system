@@ -195,7 +195,11 @@ func (h *InventoryHandler) ListUserWaitlist(w http.ResponseWriter, r *http.Reque
 	// If not provided in query params, try to get from authenticated user
 	if email == "" && sessionID == "" {
 		// Try to get user ID from JWT token (if authenticated)
-		userID := middleware.GetUserIDFromToken(r)
+		userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 		if userID > 0 {
 			// Get user's email from database
 			var user struct {

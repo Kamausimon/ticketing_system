@@ -61,7 +61,11 @@ func (h *OrganizerHandler) OrganizerApply(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 
 	// Get user ID from JWT token
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Parse request body
 	var req OrganizerApplicationRequest

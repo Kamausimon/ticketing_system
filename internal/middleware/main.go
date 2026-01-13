@@ -3,7 +3,6 @@ package middleware
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -60,20 +59,31 @@ func ValidateJWT(tokenString, tokenSecret string) (uint, error) {
 }
 
 func GetUserIDFromToken(r *http.Request) uint {
+	userID, _ := GetUserIDFromTokenWithError(r)
+	return userID
+}
+
+func GetUserIDFromTokenWithError(r *http.Request) (uint, error) {
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatal("There was an error reading the env variables", err)
+		return 0, fmt.Errorf("error reading env variables: %w", err)
 	}
 	tokenSecret := os.Getenv("JWTSECRET")
+	if tokenSecret == "" {
+		return 0, fmt.Errorf("JWTSECRET not configured")
+	}
+	
 	bearerToken, err := GetBearerToken(r.Header)
 	if err != nil {
-		log.Fatal("error getting the autheader", err)
+		return 0, fmt.Errorf("error getting auth header: %w", err)
 	}
+	
 	userID, err := ValidateJWT(bearerToken, tokenSecret)
 	if err != nil {
-		log.Fatal("error getting the user id", err)
+		return 0, fmt.Errorf("error validating token: %w", err)
 	}
-	return userID
+	
+	return userID, nil
 }
 
 // RequireEmailVerification middleware checks if the user's email is verified
@@ -81,8 +91,8 @@ func GetUserIDFromToken(r *http.Request) uint {
 func RequireEmailVerification(db *gorm.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			userID := GetUserIDFromToken(r)
-			if userID == 0 {
+			userID, err := GetUserIDFromTokenWithError(r)
+			if err != nil || userID == 0 {
 				WriteJSONError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}

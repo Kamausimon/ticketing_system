@@ -27,7 +27,11 @@ type OnboardingStatusResponse struct {
 func (h *OrganizerHandler) GetOnboardingStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get user and organizer info
 	var user models.User

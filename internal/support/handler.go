@@ -223,7 +223,11 @@ func (h *SupportHandler) GetTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check access permissions
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if !h.canAccessTicket(userID, ticket) {
 		middleware.WriteJSONError(w, http.StatusForbidden, "access denied")
 		return
@@ -236,7 +240,11 @@ func (h *SupportHandler) GetTicket(w http.ResponseWriter, r *http.Request) {
 func (h *SupportHandler) ListTickets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get user to check role
 	var user models.User
@@ -335,7 +343,11 @@ func (h *SupportHandler) UpdateTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -461,7 +473,11 @@ func (h *SupportHandler) AddComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	var req AddCommentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -549,7 +565,11 @@ func (h *SupportHandler) AddComment(w http.ResponseWriter, r *http.Request) {
 func (h *SupportHandler) GetTicketStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

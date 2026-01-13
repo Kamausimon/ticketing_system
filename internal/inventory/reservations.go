@@ -34,7 +34,11 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get session ID from header
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -170,7 +174,11 @@ func (h *InventoryHandler) GetReservation(w http.ResponseWriter, r *http.Request
 
 // ListUserReservations lists all active reservations for a session
 func (h *InventoryHandler) ListUserReservations(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return

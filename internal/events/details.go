@@ -44,7 +44,11 @@ func (h *EventHandler) GetEventDetails(w http.ResponseWriter, r *http.Request) {
 	// Check if event is accessible (live events are public, others require organizer access)
 	if event.Status != models.EventLive {
 		// Check if user is the organizer
-		userID := middleware.GetUserIDFromToken(r)
+		userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 		if userID == 0 {
 			middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 			return
@@ -81,7 +85,11 @@ func (h *EventHandler) GetEventDetails(w http.ResponseWriter, r *http.Request) {
 func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -207,7 +215,11 @@ func (h *EventHandler) UpdateEvent(w http.ResponseWriter, r *http.Request) {
 func (h *EventHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -281,7 +293,11 @@ func (h *EventHandler) PublishEvent(w http.ResponseWriter, r *http.Request) {
 func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

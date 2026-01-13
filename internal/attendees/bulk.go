@@ -47,7 +47,11 @@ func (h *AttendeeHandler) SendBulkEmail(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -177,7 +181,11 @@ type BulkExportRequest struct {
 
 // ExportAttendeesData exports attendee data in bulk
 func (h *AttendeeHandler) ExportAttendeesData(w http.ResponseWriter, r *http.Request) {
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
@@ -337,7 +345,11 @@ func (h *AttendeeHandler) SendEventUpdateEmail(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	if userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return

@@ -51,7 +51,11 @@ type UpdateProfileRequest struct {
 func (h *OrganizerHandler) GetOrganizerProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get user and their organizer profile
 	var user models.User
@@ -94,7 +98,11 @@ func (h *OrganizerHandler) GetOrganizerProfile(w http.ResponseWriter, r *http.Re
 func (h *OrganizerHandler) UpdateOrganizerProfile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	var req UpdateProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -152,7 +160,11 @@ func (h *OrganizerHandler) UpdateOrganizerProfile(w http.ResponseWriter, r *http
 func (h *OrganizerHandler) UploadOrganizerLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get organizer
 	var user models.User

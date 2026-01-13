@@ -28,7 +28,11 @@ func (h *PaymentHandler) GetGatewayConfig(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	gatewayID := vars["gateway_id"]
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get user and account
 	var user models.User
@@ -68,7 +72,11 @@ func (h *PaymentHandler) UpdateGatewayConfig(w http.ResponseWriter, r *http.Requ
 	vars := mux.Vars(r)
 	gatewayID := vars["gateway_id"]
 
-	userID := middleware.GetUserIDFromToken(r)
+	userID, err := middleware.GetUserIDFromTokenWithError(r)
+	if err != nil || userID == 0 {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
 	// Get user and account
 	var user models.User
