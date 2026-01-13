@@ -3,6 +3,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: ticketing_prometheus
+    network_mode: host
     ports:
       - "9090:9090"
     volumes:
@@ -18,8 +19,6 @@ services:
       - "--web.console.templates=/etc/prometheus/consoles"
       - "--web.enable-lifecycle"
       - "--web.enable-admin-api"
-    networks:
-      - monitoring
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
