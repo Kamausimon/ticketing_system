@@ -12,13 +12,6 @@ const state = {
     organizerEvents: []
 };
 
-// Debug: Log initial state
-console.log('Initial state loaded:', {
-    hasToken: !!state.token,
-    tokenPreview: state.token ? state.token.substring(0, 20) + '...' : null,
-    user: state.user
-});
-
 // Utility Functions
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
@@ -63,9 +56,6 @@ async function apiRequest(endpoint, options = {}) {
 
     if (state.token) {
         defaultOptions.headers['Authorization'] = `Bearer ${state.token}`;
-        console.log(`[${endpoint}] Authorization token added`);
-    } else {
-        console.log(`[${endpoint}] No authorization token present`);
     }
 
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -79,12 +69,10 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ message: 'Request failed' }));
-        console.error(`[${endpoint}] Request failed:`, response.status, error);
         throw new Error(error.message || `HTTP ${response.status}`);
     }
 
     const data = await response.json();
-    console.log(`[${endpoint}] Response:`, data);
     return data;
 }
 
@@ -96,8 +84,6 @@ async function login(email, password) {
             body: JSON.stringify({ email, password })
         });
 
-        console.log('Login response:', data);
-
         if (!data.token) {
             throw new Error('No token received from server');
         }
@@ -106,9 +92,6 @@ async function login(email, password) {
         state.user = { email, id: data.user_id };
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(state.user));
-
-        console.log('Token saved:', state.token);
-        console.log('User saved:', state.user);
 
         showToast('Login successful!');
         updateUI();
