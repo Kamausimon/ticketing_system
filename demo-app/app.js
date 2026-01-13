@@ -1,6 +1,6 @@
 // Configuration
-// Change this to your Railway backend URL when deploying
-const API_URL = window.RAILWAY_API_URL || 'http://localhost:8080';
+// Replace with your Railway backend URL
+const API_URL = 'https://ticketingsystem-production-4a1d.up.railway.app/';
 
 // State Management
 const state = {
