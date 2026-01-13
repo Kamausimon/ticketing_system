@@ -24,7 +24,19 @@ func Init() *gorm.DB {
 		// Not fatal - Railway injects variables as system environment variables
 		log.Printf("⚠️  .env file not found (using system environment variables): %v\n", err)
 	}
-	dsn := os.Getenv("DSN")
+	
+	// Try DATABASE_URL first (Railway, Heroku standard), then fall back to DSN
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("DSN")
+	}
+	
+	// Validate DSN is set
+	if dsn == "" {
+		log.Fatal("❌ Database connection string not found. Set DATABASE_URL or DSN environment variable")
+	}
+	
+	log.Printf("📊 Connecting to database...")
 
 	cfg := &DbConfig{
 		dsn: dsn,
@@ -36,7 +48,7 @@ func Init() *gorm.DB {
 		Logger:      logger.Default.LogMode(logger.Info),
 	})
 	if err != nil {
-		log.Fatal("err connecting to the db", err)
+		log.Fatalf("❌ Failed to connect to database: %v\nConnection string format: postgresql://user:pass@host:port/dbname", err)
 	}
 
 	// Get underlying SQL DB for connection pool configuration
