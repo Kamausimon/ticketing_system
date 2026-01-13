@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 	"ticketing_system/internal/accounts"
 	"ticketing_system/internal/admin"
 	"ticketing_system/internal/analytics"
@@ -48,7 +50,10 @@ func main() {
 
 	DB := database.Init()
 
-	// Run migrations for all models
+	// Run migrations - safe auto-migrate for initial setup
+	// NOTE: For production after initial launch, use versioned migrations instead
+	// See PRODUCTION_DEPLOYMENT_GUIDE.md for migration best practices
+	fmt.Println("🔧 Running database migrations...")
 	err := DB.AutoMigrate(
 		// Core User & Auth
 		&models.User{},
@@ -295,6 +300,44 @@ func main() {
 
 	// Expose Prometheus metrics endpoint
 	router.Handle("/metrics", promhttp.Handler())
+
+	// Health check endpoint - for monitoring and auto-rollback
+	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		
+		// Check database connection
+		dbHealthy := true
+		var dbError string
+		if err := DB.Exec("SELECT 1").Error; err != nil {
+			dbHealthy = false
+			dbError = err.Error()
+		}
+		
+		// Determine overall health
+		status := "healthy"
+		statusCode := http.StatusOK
+		if !dbHealthy {
+			status = "unhealthy"
+			statusCode = http.StatusServiceUnavailable
+		}
+		
+		response := map[string]interface{}{
+			"status":    status,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"checks": map[string]interface{}{
+				"database": map[string]interface{}{
+					"healthy": dbHealthy,
+				},
+			},
+		}
+		
+		if dbError != "" {
+			response["checks"].(map[string]interface{})["database"].(map[string]interface{})["error"] = dbError
+		}
+		
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(response)
+	}).Methods(http.MethodGet)
 
 	// Serve static files (uploads) - must be before other routes
 	uploadsDir := "./uploads"
