@@ -17,9 +17,12 @@ type DbConfig struct {
 }
 
 func Init() *gorm.DB {
+	// Try to load .env file (for local development)
+	// On Railway/production, environment variables are already set
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatal("There was an error reading the env variables", err)
+		// Not fatal - Railway injects variables as system environment variables
+		log.Printf("⚠️  .env file not found (using system environment variables): %v\n", err)
 	}
 	dsn := os.Getenv("DSN")
 
