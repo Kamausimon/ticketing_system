@@ -81,12 +81,11 @@ async function apiRequest(endpoint, options = {}) {
 // Authentication Functions
 async function login(email, password) {
     try {
-        const response = await apiRequest('/login', {
+        const data = await apiRequest('/login', {
             method: 'POST',
             body: JSON.stringify({ email, password })
         });
 
-        const data = await response.json();
         state.token = data.token;
         state.user = { email, id: data.user_id };
         localStorage.setItem('token', data.token);
