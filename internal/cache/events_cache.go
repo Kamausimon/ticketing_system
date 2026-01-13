@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -19,9 +18,8 @@ func NewEventsCache(sm *SessionManager) *EventsCache {
 
 // GetEventsList retrieves cached events list
 func (ec *EventsCache) GetEventsList(key string) ([]byte, error) {
-	ctx := context.Background()
 	var data []byte
-	err := ec.sm.Get(ctx, key, &data)
+	err := ec.sm.Get(key, &data)
 	if err != nil {
 		return nil, err
 	}
@@ -30,8 +28,7 @@ func (ec *EventsCache) GetEventsList(key string) ([]byte, error) {
 
 // SetEventsList caches events list
 func (ec *EventsCache) SetEventsList(key string, data []byte, ttl time.Duration) error {
-	ctx := context.Background()
-	return ec.sm.Set(ctx, key, data, ttl)
+	return ec.sm.Set(key, data, ttl)
 }
 
 // GetSearchResults retrieves cached search results
@@ -48,24 +45,22 @@ func (ec *EventsCache) SetSearchResults(query string, data []byte, ttl time.Dura
 
 // InvalidateEventsList clears the events list cache
 func (ec *EventsCache) InvalidateEventsList() error {
-	ctx := context.Background()
 	// Delete common cache keys
 	keys := []string{
 		"events:list",
 		"events:list:page:*",
 	}
-	
+
 	for _, key := range keys {
-		ec.sm.Delete(ctx, key)
+		ec.sm.Delete(key)
 	}
 	return nil
 }
 
 // InvalidateEvent clears cache for a specific event
 func (ec *EventsCache) InvalidateEvent(eventID int) error {
-	ctx := context.Background()
 	key := fmt.Sprintf("event:%d", eventID)
-	return ec.sm.Delete(ctx, key)
+	return ec.sm.Delete(key)
 }
 
 // GetMetrics returns cache statistics
@@ -94,38 +89,35 @@ func (ec *EventsCache) WarmUp(dataLoader func() ([]byte, error)) error {
 
 // BatchInvalidate clears multiple cache keys at once
 func (ec *EventsCache) BatchInvalidate(keys []string) error {
-	ctx := context.Background()
 	for _, key := range keys {
-		ec.sm.Delete(ctx, key)
+		ec.sm.Delete(key)
 	}
 	return nil
 }
 
 // GetOrSet retrieves from cache or computes and stores the value
 func (ec *EventsCache) GetOrSet(key string, ttl time.Duration, compute func() (interface{}, error)) ([]byte, error) {
-	ctx := context.Background()
-	
 	// Try to get from cache
 	var data []byte
-	err := ec.sm.Get(ctx, key, &data)
+	err := ec.sm.Get(key, &data)
 	if err == nil {
 		return data, nil
 	}
-	
+
 	// Cache miss - compute value
 	result, err := compute()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Serialize result
 	data, err = json.Marshal(result)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Store in cache
-	ec.sm.Set(ctx, key, data, ttl)
-	
+	ec.sm.Set(key, data, ttl)
+
 	return data, nil
 }

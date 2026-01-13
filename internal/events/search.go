@@ -2,7 +2,6 @@ package events
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"ticketing_system/internal/middleware"
@@ -25,7 +24,6 @@ func (h *EventHandler) SearchEvents(w http.ResponseWriter, r *http.Request) {
 	params := parseEventListParams(r)
 
 	// Try cache first
-	cacheKey := fmt.Sprintf("search:%s:page:%d", searchQuery, params.Page)
 	if h.cache != nil {
 		if cachedData, err := h.cache.GetSearchResults(searchQuery); err == nil {
 			w.Write(cachedData)
