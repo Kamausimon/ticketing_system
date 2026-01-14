@@ -152,7 +152,7 @@ type PromotionCache struct {
 	StartDate          int64  `json:"start_date"` // Unix timestamp
 	EndDate            int64  `json:"end_date"`   // Unix timestamp
 	EventID            *uint  `json:"event_id,omitempty"`
-	TicketClassIDs     []uint `json:"ticket_class_ids,omitempty"`
+	TicketClassIDs     []uint `json:"ticket_class_ids,omitempty" gorm:"serializer:json"`
 	PerUserLimit       *int32 `json:"per_user_limit,omitempty"`
 	LastUpdated        int64  `json:"last_updated"` // Cache timestamp
 }
