@@ -355,6 +355,7 @@ func main() {
 	router.HandleFunc("/resetPassword", authLimiter.HandlerFunc(authHandler.ResetPassword)).Methods(http.MethodPost)
 
 	// Email verification routes
+	router.HandleFunc("/verify-email", authHandler.VerifyEmailLink).Methods(http.MethodGet) // Direct link from email
 	router.HandleFunc("/verify-email", authLimiter.HandlerFunc(authHandler.VerifyEmail)).Methods(http.MethodPost)
 	router.HandleFunc("/resend-verification", authLimiter.HandlerFunc(authHandler.ResendVerification)).Methods(http.MethodPost)
 	router.HandleFunc("/verify-email/status", authHandler.CheckEmailVerificationStatus).Methods(http.MethodGet)

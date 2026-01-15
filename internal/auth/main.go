@@ -779,12 +779,73 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := VerifyEmailResponse{
-		Message: "email verified successfully",
-		Email:   verification.Email,
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":     "email verified successfully",
+		"verified_at": now,
+	})
+}
+
+// VerifyEmailLink handles GET request for email verification (from email links)
+func (h *AuthHandler) VerifyEmailLink(w http.ResponseWriter, r *http.Request) {
+	// Get frontend URL from env or use default
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
 	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+
+	// Get token from query parameter
+	token := r.URL.Query().Get("code")
+	if token == "" {
+		http.Redirect(w, r, frontendURL+"/login?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Find verification record
+	var verification models.EmailVerification
+	if err := h.db.Where("token = ?", token).First(&verification).Error; err != nil {
+		http.Redirect(w, r, frontendURL+"/login?error=invalid_token", http.StatusSeeOther)
+		return
+	}
+
+	// Check if token is expired
+	if verification.ExpiresAt.Before(time.Now()) {
+		verification.Status = models.VerificationExpired
+		h.db.Save(&verification)
+		http.Redirect(w, r, frontendURL+"/login?error=token_expired", http.StatusSeeOther)
+		return
+	}
+
+	// Check if already verified
+	if verification.Status == models.VerificationVerified {
+		http.Redirect(w, r, frontendURL+"/login?success=already_verified", http.StatusSeeOther)
+		return
+	}
+
+	// Update user
+	if err := h.db.Model(&models.User{}).Where("id = ?", verification.UserID).Updates(map[string]interface{}{
+		"email_verified":    true,
+		"email_verified_at": time.Now(),
+	}).Error; err != nil {
+		http.Redirect(w, r, frontendURL+"/login?error=verification_failed", http.StatusSeeOther)
+		return
+	}
+
+	// Update verification record
+	now := time.Now()
+	verification.Status = models.VerificationVerified
+	verification.VerifiedAt = &now
+	h.db.Save(&verification)
+
+	// Get user for activity logging
+	var user models.User
+	if err := h.db.First(&user, verification.UserID).Error; err == nil {
+		if h.activityLogger != nil {
+			h.activityLogger.LogEmailVerified(user.AccountID, &user.ID, r.RemoteAddr, r.Header.Get("User-Agent"))
+		}
+	}
+
+	// Redirect to login with success message
+	http.Redirect(w, r, frontendURL+"/login?success=email_verified", http.StatusSeeOther)
 }
 
 // ResendVerificationRequest represents a resend verification request
