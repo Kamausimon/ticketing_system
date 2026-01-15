@@ -31,9 +31,9 @@ func main() {
 
 	// Test email data
 	emailData := notifications.EmailData{
-		To:      []string{os.Getenv("TEST_EMAIL_TO")},
-		Subject: "Test Email - Connection Fix",
-		Body:    "This is a test email to verify the timeout fix is working correctly.",
+		To:       []string{os.Getenv("TEST_EMAIL_TO")},
+		Subject:  "Test Email - Connection Fix",
+		Body:     "This is a test email to verify the timeout fix is working correctly.",
 		HTMLBody: "<h1>Test Email</h1><p>This is a test email to verify the timeout fix is working correctly.</p>",
 	}
 
