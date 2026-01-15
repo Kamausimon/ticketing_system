@@ -9,16 +9,23 @@ import (
 
 func main() {
 	// Load email configuration from environment
+	// Try SSL on port 465 if TLS on 587 is timing out
+	useSSL := os.Getenv("TEST_USE_SSL") == "true"
+	port := 587
+	if useSSL {
+		port = 465
+	}
+
 	emailConfig := &config.EmailConfig{
 		Host:       os.Getenv("EMAIL_HOST"),
-		Port:       587,
-		Username:   os.Getenv("EMAIL_FROM"),
+		Port:       port,
+		Username:   os.Getenv("EMAIL_USERNAME"),
 		Password:   os.Getenv("EMAIL_PASSWORD"),
 		FromEmail:  os.Getenv("EMAIL_FROM"),
 		FromName:   os.Getenv("EMAIL_FROM_NAME"),
-		UseTLS:     true,
-		UseSSL:     false,
-		Timeout:    30,
+		UseTLS:     !useSSL,
+		UseSSL:     useSSL,
+		Timeout:    60, // Increased timeout for slow connections
 		MaxRetries: 3,
 		TestMode:   false,
 	}
