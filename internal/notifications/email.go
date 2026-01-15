@@ -16,8 +16,9 @@ import (
 
 // EmailService handles email operations
 type EmailService struct {
-	config *config.EmailConfig
-	auth   smtp.Auth
+	config   *config.EmailConfig
+	auth     smtp.Auth
+	brevoAPI *BrevoAPIClient
 }
 
 // NewEmailService creates a new email service
@@ -31,9 +32,16 @@ func NewEmailService(cfg *config.EmailConfig) *EmailService {
 	}
 	// If no credentials provided, auth will be nil (for servers that don't require auth)
 
+	// Initialize Brevo API client if API key is provided
+	var brevoAPI *BrevoAPIClient
+	if cfg.BrevoAPIKey != "" {
+		brevoAPI = NewBrevoAPIClient(cfg.BrevoAPIKey, cfg.FromEmail, cfg.FromName, cfg.Timeout)
+	}
+
 	return &EmailService{
-		config: cfg,
-		auth:   auth,
+		config:   cfg,
+		auth:     auth,
+		brevoAPI: brevoAPI,
 	}
 }
 
@@ -60,6 +68,19 @@ func (s *EmailService) Send(data EmailData) error {
 		return nil
 	}
 
+	// Use Brevo API if available (preferred for cloud deployments)
+	if s.brevoAPI != nil {
+		log.Printf("📧 Sending email via Brevo API to: %v", data.To)
+		err := s.brevoAPI.SendEmail(data.To, data.Subject, data.Body, data.HTMLBody)
+		if err != nil {
+			log.Printf("❌ Brevo API failed: %v", err)
+			return fmt.Errorf("brevo API error: %w", err)
+		}
+		log.Printf("✅ Email sent successfully via Brevo API")
+		return nil
+	}
+
+	// Fallback to SMTP
 	var lastErr error
 	for i := 0; i < s.config.MaxRetries; i++ {
 		err := s.sendWithRetry(data)

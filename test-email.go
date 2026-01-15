@@ -10,21 +10,26 @@ import (
 func main() {
 	// Load email configuration from environment - use actual .env values
 	emailConfig := &config.EmailConfig{
-		Host:       os.Getenv("EMAIL_HOST"),
-		Port:       587, // Force port 587
-		Username:   os.Getenv("EMAIL_USERNAME"),
-		Password:   os.Getenv("EMAIL_PASSWORD"),
-		FromEmail:  os.Getenv("EMAIL_FROM"),
-		FromName:   os.Getenv("EMAIL_FROM_NAME"),
-		UseTLS:     true,  // Force TLS
-		UseSSL:     false, // No SSL
-		Timeout:    60,
-		MaxRetries: 3,
-		TestMode:   false,
+		Host:        os.Getenv("EMAIL_HOST"),
+		Port:        587,
+		Username:    os.Getenv("EMAIL_USERNAME"),
+		Password:    os.Getenv("EMAIL_PASSWORD"),
+		FromEmail:   os.Getenv("EMAIL_FROM"),
+		FromName:    os.Getenv("EMAIL_FROM_NAME"),
+		UseTLS:      true,
+		UseSSL:      false,
+		Timeout:     60,
+		MaxRetries:  3,
+		TestMode:    false,
+		BrevoAPIKey: os.Getenv("BREVO_API_KEY"), // Load Brevo API key
 	}
 
-	log.Printf("Testing email with config: Host=%s, Port=%d, Username=%s, UseTLS=%v",
-		emailConfig.Host, emailConfig.Port, emailConfig.Username, emailConfig.UseTLS)
+	if emailConfig.BrevoAPIKey != "" {
+		log.Printf("Testing email with Brevo API (API Key: %s...)", emailConfig.BrevoAPIKey[:20])
+	} else {
+		log.Printf("Testing email with SMTP: Host=%s, Port=%d, Username=%s, UseTLS=%v",
+			emailConfig.Host, emailConfig.Port, emailConfig.Username, emailConfig.UseTLS)
+	}
 
 	// Create email service
 	emailService := notifications.NewEmailService(emailConfig)

@@ -38,18 +38,19 @@ type ServerConfig struct {
 
 // EmailConfig holds email configuration
 type EmailConfig struct {
-	Provider   string // "smtp", "gmail", "custom" - just for reference, not enforced
-	Host       string // SMTP server host (e.g., smtp.gmail.com, localhost)
-	Port       int    // SMTP port (587 for TLS, 465 for SSL, 25 for plain)
-	Username   string // SMTP username (leave empty if no auth required)
-	Password   string // SMTP password (leave empty if no auth required)
-	FromEmail  string // Sender email address
-	FromName   string // Sender display name
-	UseTLS     bool   // Use STARTTLS (port 587)
-	UseSSL     bool   // Use SSL/TLS (port 465)
-	Timeout    int    // Connection timeout in seconds
-	MaxRetries int    // Number of retry attempts on failure
-	TestMode   bool   // If true, emails are logged but not sent
+	Provider    string // "smtp", "gmail", "custom", "brevo_api" - just for reference, not enforced
+	Host        string // SMTP server host (e.g., smtp.gmail.com, localhost)
+	Port        int    // SMTP port (587 for TLS, 465 for SSL, 25 for plain)
+	Username    string // SMTP username (leave empty if no auth required)
+	Password    string // SMTP password (leave empty if no auth required)
+	FromEmail   string // Sender email address
+	FromName    string // Sender display name
+	UseTLS      bool   // Use STARTTLS (port 587)
+	UseSSL      bool   // Use SSL/TLS (port 465)
+	Timeout     int    // Connection timeout in seconds
+	MaxRetries  int    // Number of retry attempts on failure
+	TestMode    bool   // If true, emails are logged but not sent
+	BrevoAPIKey string // Brevo API key (for cloud deployments)
 }
 
 // AppConfig holds general app configuration
@@ -101,18 +102,19 @@ func Load() (*Config, error) {
 			Env:  getEnv("APP_ENV", "development"),
 		},
 		Email: EmailConfig{
-			Provider:   getEnv("EMAIL_PROVIDER", "smtp"),
-			Host:       getEnv("EMAIL_HOST", "localhost"),
-			Port:       getEnvAsInt("EMAIL_PORT", 587),
-			Username:   getEnv("EMAIL_USERNAME", ""),
-			Password:   getEnv("EMAIL_PASSWORD", ""),
-			FromEmail:  getEnv("EMAIL_FROM", "noreply@ticketing.com"),
-			FromName:   getEnv("EMAIL_FROM_NAME", "Ticketing System"),
-			UseTLS:     getEnvAsBool("EMAIL_USE_TLS", true),
-			UseSSL:     getEnvAsBool("EMAIL_USE_SSL", false),
-			Timeout:    getEnvAsInt("EMAIL_TIMEOUT", 30),
-			MaxRetries: getEnvAsInt("EMAIL_MAX_RETRIES", 3),
-			TestMode:   getEnvAsBool("EMAIL_TEST_MODE", true),
+			Provider:    getEnv("EMAIL_PROVIDER", "smtp"),
+			Host:        getEnv("EMAIL_HOST", "localhost"),
+			Port:        getEnvAsInt("EMAIL_PORT", 587),
+			Username:    getEnv("EMAIL_USERNAME", ""),
+			Password:    getEnv("EMAIL_PASSWORD", ""),
+			FromEmail:   getEnv("EMAIL_FROM", "noreply@ticketing.com"),
+			FromName:    getEnv("EMAIL_FROM_NAME", "Ticketing System"),
+			UseTLS:      getEnvAsBool("EMAIL_USE_TLS", true),
+			UseSSL:      getEnvAsBool("EMAIL_USE_SSL", false),
+			Timeout:     getEnvAsInt("EMAIL_TIMEOUT", 30),
+			MaxRetries:  getEnvAsInt("EMAIL_MAX_RETRIES", 3),
+			TestMode:    getEnvAsBool("EMAIL_TEST_MODE", true),
+			BrevoAPIKey: getEnv("BREVO_API_KEY", ""),
 		},
 		App: AppConfig{
 			Name:        getEnv("APP_NAME", "Ticketing System"),
