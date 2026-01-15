@@ -68,7 +68,7 @@ func (s *NotificationService) SendVerificationEmail(email, name, code string) er
 	data := VerificationData{
 		Name:             name,
 		VerificationCode: code,
-		VerificationURL:  fmt.Sprintf("%s/verify-email?code=%s", s.config.App.FrontendURL, code),
+		VerificationURL:  fmt.Sprintf("%s/verify-email?code=%s", s.config.App.BaseURL, code),
 	}
 
 	err := s.emailService.SendWithTemplate(
