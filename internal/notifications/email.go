@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/smtp"
 	"time"
 
@@ -94,9 +95,22 @@ func (s *EmailService) sendWithRetry(data EmailData) error {
 
 // sendWithTLS sends email using STARTTLS
 func (s *EmailService) sendWithTLS(addr string, to []string, msg []byte) error {
-	client, err := smtp.Dial(addr)
+	// Create a dialer with timeout
+	dialer := &net.Dialer{
+		Timeout: time.Duration(s.config.Timeout) * time.Second,
+	}
+
+	// Dial with timeout
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to dial: %w", err)
+	}
+	defer conn.Close()
+
+	// Create SMTP client from connection
+	client, err := smtp.NewClient(conn, s.config.Host)
+	if err != nil {
+		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
 	defer client.Close()
 
@@ -153,13 +167,25 @@ func (s *EmailService) sendWithSSL(addr string, to []string, msg []byte) error {
 		MinVersion: tls.VersionTLS12,
 	}
 
-	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	// Create a dialer with timeout
+	dialer := &net.Dialer{
+		Timeout: time.Duration(s.config.Timeout) * time.Second,
+	}
+
+	// Dial with timeout
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("failed to establish SSL connection: %w", err)
+		return fmt.Errorf("failed to dial: %w", err)
 	}
 	defer conn.Close()
 
-	client, err := smtp.NewClient(conn, s.config.Host)
+	// Wrap connection with TLS
+	tlsConn := tls.Client(conn, tlsConfig)
+	if err = tlsConn.Handshake(); err != nil {
+		return fmt.Errorf("failed to establish SSL connection: %w", err)
+	}
+
+	client, err := smtp.NewClient(tlsConn, s.config.Host)
 	if err != nil {
 		return fmt.Errorf("failed to create SMTP client: %w", err)
 	}
