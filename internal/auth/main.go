@@ -796,14 +796,14 @@ func (h *AuthHandler) VerifyEmailLink(w http.ResponseWriter, r *http.Request) {
 	// Get token from query parameter
 	token := r.URL.Query().Get("code")
 	if token == "" {
-		http.Redirect(w, r, frontendURL+"/login?error=invalid_token", http.StatusSeeOther)
+		http.Redirect(w, r, frontendURL+"/?error=invalid_token", http.StatusSeeOther)
 		return
 	}
 
 	// Find verification record
 	var verification models.EmailVerification
 	if err := h.db.Where("token = ?", token).First(&verification).Error; err != nil {
-		http.Redirect(w, r, frontendURL+"/login?error=invalid_token", http.StatusSeeOther)
+		http.Redirect(w, r, frontendURL+"/?error=invalid_token", http.StatusSeeOther)
 		return
 	}
 
@@ -811,13 +811,13 @@ func (h *AuthHandler) VerifyEmailLink(w http.ResponseWriter, r *http.Request) {
 	if verification.ExpiresAt.Before(time.Now()) {
 		verification.Status = models.VerificationExpired
 		h.db.Save(&verification)
-		http.Redirect(w, r, frontendURL+"/login?error=token_expired", http.StatusSeeOther)
+		http.Redirect(w, r, frontendURL+"/?error=token_expired", http.StatusSeeOther)
 		return
 	}
 
 	// Check if already verified
 	if verification.Status == models.VerificationVerified {
-		http.Redirect(w, r, frontendURL+"/login?success=already_verified", http.StatusSeeOther)
+		http.Redirect(w, r, frontendURL+"/?success=already_verified", http.StatusSeeOther)
 		return
 	}
 
@@ -826,7 +826,7 @@ func (h *AuthHandler) VerifyEmailLink(w http.ResponseWriter, r *http.Request) {
 		"email_verified":    true,
 		"email_verified_at": time.Now(),
 	}).Error; err != nil {
-		http.Redirect(w, r, frontendURL+"/login?error=verification_failed", http.StatusSeeOther)
+		http.Redirect(w, r, frontendURL+"/?error=verification_failed", http.StatusSeeOther)
 		return
 	}
 
@@ -845,7 +845,7 @@ func (h *AuthHandler) VerifyEmailLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect to login with success message
-	http.Redirect(w, r, frontendURL+"/login?success=email_verified", http.StatusSeeOther)
+	http.Redirect(w, r, frontendURL+"/?success=email_verified", http.StatusSeeOther)
 }
 
 // ResendVerificationRequest represents a resend verification request
