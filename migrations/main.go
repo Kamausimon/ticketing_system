@@ -219,6 +219,9 @@ func createCustomIndexes(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_activities_failed ON account_activities(success, severity, timestamp DESC) WHERE success = false;",
 		"CREATE INDEX IF NOT EXISTS idx_login_history_recent ON login_history(account_id, login_at DESC);",
 		"CREATE INDEX IF NOT EXISTS idx_login_history_failed ON login_history(ip_address, success, login_at DESC) WHERE success = false;",
+
+		//searching index
+		"CREATE INDEX IF NOT EXISTS idx_reserved_tickets_expires_deletedat ON reserved_tickets(expires_at, deleted_at) WHERE deleted_at IS NULL;",
 	}
 
 	for _, indexSQL := range indexes {
