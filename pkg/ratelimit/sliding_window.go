@@ -51,14 +51,12 @@ func (sw *SlidingWindow) Allow(key string) bool {
 	now := time.Now()
 	windowStart := now.Add(-sw.window)
 
-	// Get or create request list for this key
 	requests, exists := sw.requests[key]
 	if !exists {
 		sw.requests[key] = []time.Time{now}
 		return true
 	}
 
-	// Remove old requests outside the window
 	validRequests := []time.Time{}
 	for _, reqTime := range requests {
 		if reqTime.After(windowStart) {
@@ -66,7 +64,6 @@ func (sw *SlidingWindow) Allow(key string) bool {
 		}
 	}
 
-	// Check if we can allow this request
 	if int64(len(validRequests)) < sw.maxRequests {
 		validRequests = append(validRequests, now)
 		sw.requests[key] = validRequests
@@ -85,7 +82,6 @@ func (sw *SlidingWindow) AllowN(key string, n int64) bool {
 	now := time.Now()
 	windowStart := now.Add(-sw.window)
 
-	// Get or create request list for this key
 	requests, exists := sw.requests[key]
 	if !exists {
 		if n <= sw.maxRequests {
@@ -99,7 +95,6 @@ func (sw *SlidingWindow) AllowN(key string, n int64) bool {
 		return false
 	}
 
-	// Remove old requests outside the window
 	validRequests := []time.Time{}
 	for _, reqTime := range requests {
 		if reqTime.After(windowStart) {
@@ -107,7 +102,6 @@ func (sw *SlidingWindow) AllowN(key string, n int64) bool {
 		}
 	}
 
-	// Check if we can allow n requests
 	availableSlots := sw.maxRequests - int64(len(validRequests))
 	if n <= availableSlots {
 		for i := int64(0); i < n; i++ {
@@ -140,7 +134,6 @@ func (sw *SlidingWindow) AllowWithResult(key string) Result {
 		}
 	}
 
-	// Remove old requests outside the window
 	validRequests := []time.Time{}
 	for _, reqTime := range requests {
 		if reqTime.After(windowStart) {
@@ -159,7 +152,6 @@ func (sw *SlidingWindow) AllowWithResult(key string) Result {
 
 	sw.requests[key] = validRequests
 
-	// Calculate retry after
 	retryAfter := time.Duration(0)
 	if !allowed && len(validRequests) > 0 {
 		oldestRequest := validRequests[0]
@@ -195,7 +187,7 @@ func (sw *SlidingWindow) cleanup() {
 		windowStart := now.Add(-sw.window)
 
 		for key, requests := range sw.requests {
-			// Remove old requests and delete key if empty
+
 			validRequests := []time.Time{}
 			for _, reqTime := range requests {
 				if reqTime.After(windowStart) {

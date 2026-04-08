@@ -55,23 +55,21 @@ func (m *Middleware) HandlerFunc(next http.HandlerFunc) http.HandlerFunc {
 
 // defaultKeyFunc extracts the client IP address from the request
 func defaultKeyFunc(r *http.Request) string {
-	// Try X-Forwarded-For header first (for proxies)
+
 	if xForwardedFor := r.Header.Get("X-Forwarded-For"); xForwardedFor != "" {
-		// X-Forwarded-For can contain multiple IPs, get the first one
+
 		ips := strings.Split(xForwardedFor, ",")
 		if len(ips) > 0 {
 			return strings.TrimSpace(ips[0])
 		}
 	}
 
-	// Try X-Real-IP header
 	if xRealIP := r.Header.Get("X-Real-IP"); xRealIP != "" {
 		return xRealIP
 	}
 
-	// Fall back to RemoteAddr
 	if r.RemoteAddr != "" {
-		// Remove port if present
+
 		ip := strings.Split(r.RemoteAddr, ":")[0]
 		return ip
 	}
@@ -92,8 +90,7 @@ var KeyFuncs = struct {
 }{
 	ByIP: defaultKeyFunc,
 	ByUserID: func(r *http.Request) string {
-		// Extract user ID from context or header
-		// This is a placeholder - adjust based on your auth implementation
+
 		if userID := r.Header.Get("X-User-ID"); userID != "" {
 			return "user:" + userID
 		}

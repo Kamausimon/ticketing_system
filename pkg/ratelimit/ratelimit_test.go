@@ -13,14 +13,12 @@ func TestTokenBucketAllow(t *testing.T) {
 	}
 	limiter := NewTokenBucket(config)
 
-	// Should allow initial burst
 	for i := 0; i < 20; i++ {
 		if !limiter.Allow("client-1") {
 			t.Fatalf("Expected allow at request %d, got rejected", i+1)
 		}
 	}
 
-	// Should reject after burst
 	if limiter.Allow("client-1") {
 		t.Fatal("Expected rejection after burst, got allowed")
 	}
@@ -34,22 +32,18 @@ func TestTokenBucketRefill(t *testing.T) {
 	}
 	limiter := NewTokenBucket(config)
 
-	// Consume all tokens
 	for i := 0; i < 10; i++ {
 		if !limiter.Allow("client-1") {
 			t.Fatalf("Expected allow at request %d, got rejected", i+1)
 		}
 	}
 
-	// Should reject
 	if limiter.Allow("client-1") {
 		t.Fatal("Expected rejection when out of tokens")
 	}
 
-	// Wait for token refill (0.1 second = 1 token at 10 req/s)
 	time.Sleep(150 * time.Millisecond)
 
-	// Should allow at least 1 request
 	if !limiter.Allow("client-1") {
 		t.Fatal("Expected allow after refill")
 	}
@@ -63,17 +57,14 @@ func TestTokenBucketAllowN(t *testing.T) {
 	}
 	limiter := NewTokenBucket(config)
 
-	// Should allow 50 tokens
 	if !limiter.AllowN("client-1", 50) {
 		t.Fatal("Expected allow for 50 tokens")
 	}
 
-	// Should allow another 50 tokens
 	if !limiter.AllowN("client-1", 50) {
 		t.Fatal("Expected allow for another 50 tokens")
 	}
 
-	// Should reject 1 more token
 	if limiter.AllowN("client-1", 1) {
 		t.Fatal("Expected rejection when out of tokens")
 	}
@@ -109,20 +100,16 @@ func TestTokenBucketReset(t *testing.T) {
 	}
 	limiter := NewTokenBucket(config)
 
-	// Consume tokens
 	for i := 0; i < 10; i++ {
 		limiter.Allow("client-1")
 	}
 
-	// Should be rejected
 	if limiter.Allow("client-1") {
 		t.Fatal("Expected rejection when out of tokens")
 	}
 
-	// Reset
 	limiter.Reset("client-1")
 
-	// Should be allowed again
 	if !limiter.Allow("client-1") {
 		t.Fatal("Expected allow after reset")
 	}
@@ -137,14 +124,12 @@ func TestSlidingWindowAllow(t *testing.T) {
 	}
 	limiter := NewSlidingWindow(config)
 
-	// Should allow up to burst size
 	for i := 0; i < 5; i++ {
 		if !limiter.Allow("client-1") {
 			t.Fatalf("Expected allow at request %d, got rejected", i+1)
 		}
 	}
 
-	// Should reject beyond burst
 	if limiter.Allow("client-1") {
 		t.Fatal("Expected rejection beyond burst size")
 	}
@@ -159,20 +144,16 @@ func TestSlidingWindowWindow(t *testing.T) {
 	}
 	limiter := NewSlidingWindow(config)
 
-	// Consume all tokens
 	for i := 0; i < 5; i++ {
 		limiter.Allow("client-1")
 	}
 
-	// Should reject immediately
 	if limiter.Allow("client-1") {
 		t.Fatal("Expected rejection when window full")
 	}
 
-	// Wait for window to pass
 	time.Sleep(1100 * time.Millisecond)
 
-	// Should allow again
 	if !limiter.Allow("client-1") {
 		t.Fatal("Expected allow after window passed")
 	}
@@ -187,7 +168,6 @@ func TestSlidingWindowAllowN(t *testing.T) {
 	}
 	limiter := NewSlidingWindow(config)
 
-	// Should allow 5 requests
 	if !limiter.AllowN("client-1", 5) {
 		t.Fatal("Expected allow for 5 requests")
 	}

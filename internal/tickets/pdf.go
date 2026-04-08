@@ -50,13 +50,13 @@ func (h *TicketHandler) generateTicketPDF(ticket *models.Ticket) (string, error)
 		AttendeeName:  fullTicket.HolderName,
 		AttendeeEmail: fullTicket.HolderEmail,
 		TicketType:    ticketClass.Name,
-		SeatNumber:    "", // TODO: Add seat assignment if available
+		SeatNumber:    "",
 		Price:         float64(fullTicket.OrderItem.UnitPrice),
-		Currency:      "USD", // TODO: Get from order or account settings
+		Currency:      "USD",
 		QRCode:        qrBytes,
 		OrderNumber:   fmt.Sprintf("ORD-%d", order.ID),
 		PurchaseDate:  order.CreatedAt,
-		SpecialNotes:  "", // TODO: Add from event or ticket class
+		SpecialNotes:  "",
 	}
 
 	// If venue info is available, use it

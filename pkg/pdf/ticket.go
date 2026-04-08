@@ -9,7 +9,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 )
 
-// TicketData represents ticket information for PDF generation
+// TicketData
 type TicketData struct {
 	TicketNumber  string
 	EventName     string
@@ -23,13 +23,13 @@ type TicketData struct {
 	SeatNumber    string
 	Price         float64
 	Currency      string
-	QRCode        []byte // QR code image as bytes
+	QRCode        []byte
 	OrderNumber   string
 	PurchaseDate  time.Time
 	SpecialNotes  string
 }
 
-// TicketGenerator handles PDF ticket generation
+// TicketGenerator
 type TicketGenerator struct {
 	pdf            *gofpdf.Fpdf
 	primaryColor   string
@@ -37,7 +37,7 @@ type TicketGenerator struct {
 	logoPath       string
 }
 
-// NewTicketGenerator creates a new PDF ticket generator
+// NewTicketGenerator
 func NewTicketGenerator() *TicketGenerator {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	return &TicketGenerator{
@@ -65,15 +65,12 @@ func (g *TicketGenerator) Generate(data TicketData) ([]byte, error) {
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.AddPage()
 
-	// Set font (using built-in fonts)
 	pdf.SetFont("Arial", "", 12)
 
-	// Draw ticket
 	if err := g.drawTicket(pdf, data); err != nil {
 		return nil, err
 	}
 
-	// Convert to bytes
 	var buf bytes.Buffer
 	if err := pdf.Output(&buf); err != nil {
 		return nil, fmt.Errorf("failed to output PDF: %w", err)
@@ -84,33 +81,28 @@ func (g *TicketGenerator) Generate(data TicketData) ([]byte, error) {
 
 // drawTicket draws the ticket content
 func (g *TicketGenerator) drawTicket(pdf *gofpdf.Fpdf, data TicketData) error {
-	// Page dimensions
+
 	pageWidth, pageHeight := pdf.GetPageSize()
 	marginX := 15.0
 	marginY := 15.0
 
-	// Draw border
-	pdf.SetDrawColor(79, 70, 229) // Primary color
+	pdf.SetDrawColor(79, 70, 229)
 	pdf.SetLineWidth(0.5)
 	pdf.Rect(marginX, marginY, pageWidth-(2*marginX), pageHeight-(2*marginY), "D")
 
-	// Header section
 	currentY := marginY + 10
 
-	// Logo (if provided)
 	if g.logoPath != "" {
 		pdf.Image(g.logoPath, marginX+5, currentY, 30, 0, false, "", 0, "")
 	}
 
-	// Event name (header)
 	pdf.SetFont("Arial", "", 20)
 	pdf.SetTextColor(79, 70, 229)
 	pdf.SetXY(marginX+40, currentY)
 	pdf.CellFormat(pageWidth-(2*marginX)-45, 10, data.EventName, "", 0, "L", false, 0, "")
 	currentY += 15
 
-	// Ticket type badge
-	pdf.SetFillColor(16, 185, 129) // Secondary color
+	pdf.SetFillColor(16, 185, 129)
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Arial", "", 10)
 	pdf.SetXY(marginX+40, currentY)
@@ -202,18 +194,16 @@ func (g *TicketGenerator) drawTicket(pdf *gofpdf.Fpdf, data TicketData) error {
 
 	// QR Code section
 	if len(data.QRCode) > 0 {
-		// Save QR code to temporary location
+
 		qrOpt := gofpdf.ImageOptions{ImageType: "PNG"}
 		pdf.RegisterImageOptionsReader("qrcode", qrOpt, bytes.NewReader(data.QRCode))
 
-		// Position QR code (right side)
 		qrSize := 60.0
 		qrX := pageWidth - marginX - qrSize - 10
 		qrY := currentY
 
 		pdf.Image("qrcode", qrX, qrY, qrSize, qrSize, false, "", 0, "")
 
-		// QR instructions (left side)
 		pdf.SetXY(marginX+5, qrY+10)
 		pdf.SetFont("Arial", "", 14)
 		pdf.SetTextColor(79, 70, 229)

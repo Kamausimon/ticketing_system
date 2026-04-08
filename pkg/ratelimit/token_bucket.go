@@ -35,7 +35,7 @@ func NewTokenBucket(config Config) *TokenBucket {
 	}
 
 	if tb.maxTokens == 0 {
-		tb.maxTokens = config.RequestsPerSecond * 2 // Default burst size is 2x rate
+		tb.maxTokens = config.RequestsPerSecond * 2
 	}
 
 	// Start background cleanup
@@ -61,13 +61,11 @@ func (tb *TokenBucket) Allow(key string) bool {
 		return true
 	}
 
-	// Calculate elapsed time and refill tokens
 	elapsed := now.Sub(state.lastRefil).Seconds()
 	tokensToAdd := elapsed * tb.tokensPerSecond
 	state.tokens = min(state.tokens+tokensToAdd, tb.maxTokens)
 	state.lastRefil = now
 
-	// Check if we have at least 1 token
 	if state.tokens >= 1 {
 		state.tokens--
 		return true
@@ -85,7 +83,7 @@ func (tb *TokenBucket) AllowN(key string, n int64) bool {
 	state, exists := tb.tokens[key]
 
 	if !exists {
-		// New key: start with full bucket
+
 		state = &bucketState{
 			tokens:    tb.maxTokens,
 			lastRefil: now,
@@ -93,13 +91,11 @@ func (tb *TokenBucket) AllowN(key string, n int64) bool {
 		tb.tokens[key] = state
 	}
 
-	// Calculate elapsed time and refill tokens
 	elapsed := now.Sub(state.lastRefil).Seconds()
 	tokensToAdd := elapsed * tb.tokensPerSecond
 	state.tokens = min(state.tokens+tokensToAdd, tb.maxTokens)
 	state.lastRefil = now
 
-	// Check if we have enough tokens
 	if state.tokens >= float64(n) {
 		state.tokens -= float64(n)
 		return true
@@ -130,7 +126,6 @@ func (tb *TokenBucket) AllowWithResult(key string) Result {
 		}
 	}
 
-	// Calculate elapsed time and refill tokens
 	elapsed := now.Sub(state.lastRefil).Seconds()
 	tokensToAdd := elapsed * tb.tokensPerSecond
 	state.tokens = min(state.tokens+tokensToAdd, tb.maxTokens)
@@ -141,7 +136,6 @@ func (tb *TokenBucket) AllowWithResult(key string) Result {
 		state.tokens--
 	}
 
-	// Calculate retry after if not allowed
 	retryAfter := time.Duration(0)
 	if !allowed && tb.tokensPerSecond > 0 {
 		retryAfter = time.Duration((1 - state.tokens) / tb.tokensPerSecond * float64(time.Second))
@@ -171,7 +165,7 @@ func (tb *TokenBucket) cleanup() {
 		tb.mu.Lock()
 		now := time.Now()
 		for key, state := range tb.tokens {
-			// Remove entries that haven't been accessed in 2x cleanup interval
+
 			if now.Sub(state.lastRefil) > 2*tb.cleanupInterval {
 				delete(tb.tokens, key)
 			}

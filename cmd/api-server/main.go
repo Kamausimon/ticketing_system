@@ -50,9 +50,7 @@ func main() {
 
 	DB := database.Init()
 
-	// Run migrations - safe auto-migrate for initial setup
-	// NOTE: For production after initial launch, use versioned migrations instead
-	// See PRODUCTION_DEPLOYMENT_GUIDE.md for migration best practices
+	// Run migrations
 	fmt.Println("🔧 Running database migrations...")
 	err := DB.AutoMigrate(
 		// Core User & Auth
@@ -130,7 +128,6 @@ func main() {
 		fmt.Println("✅ Database migration completed successfully - all tables created")
 	}
 
-	// Seed preferences data (timezones, currencies, date formats)
 	fmt.Println("🌱 Seeding preferences data...")
 	if err := seed.SeedPreferencesData(DB); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to seed preferences data: %v\n", err)
@@ -144,14 +141,14 @@ func main() {
 	analytics.StartSystemMetricsCollector(metrics, DB)
 	fmt.Println("✅ System metrics collector started")
 
-	// Load configuration for notifications and security
+	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Printf("⚠️  Warning: Failed to load config: %v\n", err)
 		fmt.Println("⚠️  Notification and encryption services will not be available")
 	}
 
-	// Initialize Redis session manager
+	// Initialize Redis
 	var sessionManager *cache.SessionManager
 	var eventsCache *cache.EventsCache
 	if cfg != nil && cfg.Redis.Enabled {
@@ -165,13 +162,13 @@ func main() {
 		fmt.Println("✅ Events cache initialized")
 	} else {
 		fmt.Println("⚠️  Redis disabled - using in-memory sessions only")
-		sessionManager = cache.NewSessionManager("", "", 0) // Will only use fallback
+		sessionManager = cache.NewSessionManager("", "", 0)
 		eventsCache = cache.NewEventsCache(sessionManager)
 	}
-	// Note: sessionManager is available for future use in auth/session management
-	_ = sessionManager // Suppress unused variable warning
 
-	// Initialize S3 storage service
+	_ = sessionManager
+
+	// Initialize S3
 	var storageService *storage.StorageService
 	if cfg != nil {
 		storageService, err = storage.NewStorageService(
@@ -195,7 +192,7 @@ func main() {
 		fmt.Println("✅ Notification service initialized")
 	}
 
-	// Initialize auth handler with notification service
+	// Initialize auth handler
 	var authHandler *auth.AuthHandler
 	if notificationService != nil {
 		authHandler = auth.NewAuthHandlerWithNotifications(DB, metrics, notificationService)
@@ -203,7 +200,7 @@ func main() {
 		authHandler = auth.NewAuthHandler(DB, metrics)
 	}
 
-	// Initialize encryption service for sensitive data
+	// Initialize encryption
 	var encryptionService *security.EncryptionService
 	if cfg != nil {
 		encryptionService, err = security.NewEncryptionService(cfg.Security.EncryptionKey)
@@ -254,7 +251,7 @@ func main() {
 	adminUserHandler := admin.NewUserHandler(DB)
 	router := mux.NewRouter()
 
-	// Initialize rate limiters for different endpoint categories
+	// Initialize rate limiters
 	gov := ratelimit.NewTokenBucketGovernor()
 
 	// Configure rate limiters
@@ -280,7 +277,7 @@ func main() {
 	// Create email verification middleware
 	emailVerificationMiddleware := middleware.RequireEmailVerification(DB)
 
-	// Add CORS middleware for frontend - must be first
+	// Add CORS middleware for frontend
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Set CORS headers for all requests
@@ -343,7 +340,7 @@ func main() {
 		json.NewEncoder(w).Encode(response)
 	}).Methods(http.MethodGet)
 
-	// Serve static files (uploads) - must be before other routes
+	// Serve static files (uploads)
 	uploadsDir := "./uploads"
 	router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadsDir)))).Methods(http.MethodGet, http.MethodOptions)
 
@@ -389,8 +386,6 @@ func main() {
 	router.HandleFunc("/organizers/verify-email", organizerHandler.VerifyOrganizerEmail).Methods(http.MethodPost)
 
 	// Organizer routes - Bank Details (encrypted) - FOR PAYOUTS ONLY
-	// Note: All customer payments go through the platform's payment gateway.
-	// Organizers provide bank details to receive automatic payouts/settlements.
 	router.HandleFunc("/organizers/bank-details", organizerHandler.UpdateBankDetails).Methods(http.MethodPut)
 	router.HandleFunc("/organizers/bank-details", organizerHandler.GetBankDetails).Methods(http.MethodGet)
 
@@ -512,7 +507,6 @@ func main() {
 	router.HandleFunc("/admin/payments", apiLimiter.HandlerFunc(paymentHandler.GetAllPayments)).Methods(http.MethodGet)
 
 	// Ticket routes - Viewing
-	// Note: More specific routes must come before parameterized routes
 	router.HandleFunc("/tickets", ticketHandler.ListUserTickets).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/number", ticketHandler.GetTicketByNumber).Methods(http.MethodGet)
 	router.HandleFunc("/tickets/stats", ticketHandler.GetTicketStats).Methods(http.MethodGet)

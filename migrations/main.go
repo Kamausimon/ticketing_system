@@ -14,7 +14,7 @@ import (
 
 func main() {
 	// Try to load .env file, but don't fail if it doesn't exist
-	err := godotenv.Load(".env") // Look in parent directory
+	err := godotenv.Load(".env")
 	if err != nil {
 		log.Println("⚠️  No .env file found, using environment variables or defaults", err)
 	}
@@ -31,7 +31,6 @@ func main() {
 		log.Fatal("Failed to connect to database:", err)
 	}
 
-	// Run migrations
 	err = runMigrations(db)
 	if err != nil {
 		log.Fatal("Migration failed:", err)
@@ -168,16 +167,6 @@ func runMigrations(db *gorm.DB) error {
 }
 
 func createCustomTypes(db *gorm.DB) error {
-	// Create ENUM types if you want to use them (optional)
-	// Currently using varchar instead, so this is not needed
-	// But keeping for future reference
-
-	// Example of creating PostgreSQL ENUM:
-	// err := db.Exec("CREATE TYPE role_type AS ENUM ('customer', 'organizer', 'admin');").Error
-	// if err != nil {
-	//     log.Printf("Warning: Could not create role_type enum (may already exist): %v", err)
-	// }
-
 	return nil
 }
 
@@ -227,7 +216,7 @@ func createCustomIndexes(db *gorm.DB) error {
 	for _, indexSQL := range indexes {
 		if err := db.Exec(indexSQL).Error; err != nil {
 			log.Printf("Warning: Failed to create index: %v", err)
-			// Don't fail migration for index creation errors
+
 		}
 	}
 

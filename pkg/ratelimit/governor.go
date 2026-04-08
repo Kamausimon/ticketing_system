@@ -49,7 +49,6 @@ func (g *Governor) GetOrCreate(name string, config Config) Limiter {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	// Double-check in case another goroutine created it
 	if limiter, exists := g.limiters[name]; exists {
 		return limiter
 	}
@@ -77,7 +76,7 @@ func (g *Governor) Register(name string, limiter Limiter) {
 func (g *Governor) Allow(limiterName, key string) bool {
 	limiter := g.Get(limiterName)
 	if limiter == nil {
-		return true // Allow if limiter doesn't exist
+		return true
 	}
 	return limiter.Allow(key)
 }

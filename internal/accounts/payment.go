@@ -7,9 +7,6 @@ import (
 	"ticketing_system/internal/models"
 )
 
-// SetupStripeIntegration handles setting up Stripe payment integration
-// DEPRECATED: This system now uses Intasend API exclusively for payment processing
-// Stripe integration is disabled. Configure Intasend credentials via environment variables instead.
 func (h *AccountHandler) SetupStripeIntegration(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -39,8 +36,6 @@ func (h *AccountHandler) GetPaymentMethods(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// For now, return mock payment methods since we don't have a payment_methods table
-	// In production, you would query actual payment methods from Stripe/database
 	paymentMethods := []PaymentMethod{}
 
 	// Get account to check if Stripe is configured
@@ -225,12 +220,6 @@ func (h *AccountHandler) SetupStripeConnect(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// TODO: Implement actual Stripe Connect setup
-	// This would involve:
-	// 1. Creating a Stripe Connect account
-	// 2. Generating onboarding link
-	// 3. Storing account credentials securely
-
 	response := map[string]interface{}{
 		"message":         "Stripe Connect setup initiated",
 		"onboarding_url":  "https://connect.stripe.com/setup/...", // Mock URL
@@ -264,12 +253,6 @@ func (h *AccountHandler) CompleteStripeSetup(w http.ResponseWriter, r *http.Requ
 		middleware.WriteJSONError(w, http.StatusNotFound, "user not found")
 		return
 	}
-
-	// TODO: Implement actual Stripe Connect completion
-	// This would involve:
-	// 1. Verifying the Stripe account setup
-	// 2. Storing access tokens securely
-	// 3. Updating account status
 
 	response := map[string]interface{}{
 		"message":        "Stripe Connect setup completed",

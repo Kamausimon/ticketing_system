@@ -13,10 +13,8 @@ func main() {
 	// Initialize database connection
 	db := database.Init()
 
-	// Check if the users table exists and has the new fields
 	var user models.User
 
-	// Try to find the first user (this will also validate the schema)
 	result := db.First(&user)
 
 	if result.Error != nil {
@@ -31,7 +29,6 @@ func main() {
 		fmt.Printf("Found user: %s %s (ID: %d)\n", user.FirstName, user.LastName, user.ID)
 	}
 
-	// Check if we can describe the table structure
 	var columns []struct {
 		ColumnName string `gorm:"column:column_name"`
 		DataType   string `gorm:"column:data_type"`
@@ -50,7 +47,6 @@ func main() {
 			fmt.Printf("  - %s (%s)\n", col.ColumnName, col.DataType)
 		}
 
-		// Check for specific JWT fields
 		jwtFields := []string{"refresh_token", "refresh_token_exp", "last_login_at", "token_version"}
 		fmt.Println("\n🔑 JWT Token fields status:")
 

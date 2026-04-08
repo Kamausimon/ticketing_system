@@ -90,7 +90,6 @@ func (g *Generator) GenerateFile(content, filename string) error {
 
 // GenerateWithLogo generates QR code with a logo in the center
 func (g *Generator) GenerateWithLogo(content string, logoPath string) ([]byte, error) {
-	// Generate base QR code
 	qrImg, err := g.GenerateImage(content)
 	if err != nil {
 		return nil, err
@@ -145,7 +144,6 @@ func (g *Generator) GenerateWithLogo(content string, logoPath string) ([]byte, e
 
 // Quick generation functions for convenience
 
-// Generate creates a QR code with default settings
 func Generate(content string) ([]byte, error) {
 	return NewGenerator().GenerateBytes(content)
 }
