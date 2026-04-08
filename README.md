@@ -4,14 +4,7 @@ A comprehensive event ticketing platform built with Go, featuring user authentic
 
 ## 🚀 Quick Start - Railway Deployment
 
-### ❌ Common Error Fixed
 
-If you get this error when deploying to Railway:
-```
-Build Failed: dockerfile parse error on line 1: unknown instruction: services:
-```
-
-✅ **It's fixed!** Railway now uses the proper `/Dockerfile` instead of the docker-compose file.
 
 ### Deploy Backend
 
@@ -21,7 +14,7 @@ Build Failed: dockerfile parse error on line 1: unknown instruction: services:
 4. Configure environment variables
 5. Generate domain
 
-**Full guide**: See [RAILWAY_QUICKFIX.md](RAILWAY_QUICKFIX.md)
+
 
 ### Deploy Demo App
 
@@ -30,42 +23,11 @@ The demo app in `/demo-app` can be deployed separately:
 **Option 1 - Railway**: Create new project → Root directory: `/demo-app`  
 **Option 2 - Vercel**: `cd demo-app && vercel` (FREE)
 
-**Separation guide**: See [SEPARATION_GUIDE.md](SEPARATION_GUIDE.md)
+
 
 ---
 
-## 📚 Documentation
 
-### Deployment Guides
-- **[RAILWAY_QUICKFIX.md](RAILWAY_QUICKFIX.md)** - Quick fix for Railway errors ⭐ START HERE
-- **[RAILWAY_DEPLOYMENT_GUIDE.md](RAILWAY_DEPLOYMENT_GUIDE.md)** - Complete deployment guide
-- **[DEPLOYMENT_VISUAL_GUIDE.md](DEPLOYMENT_VISUAL_GUIDE.md)** - Visual diagrams
-- **[SEPARATION_GUIDE.md](SEPARATION_GUIDE.md)** - Backend vs Demo separation
-- **[DEPLOYMENT_COMMANDS.md](DEPLOYMENT_COMMANDS.md)** - Command reference
-
-### Feature Documentation
-- **[QUICK_START.md](QUICK_START.md)** - Local development setup
-- **[API_ROUTES.md](API_ROUTES.md)** - API endpoints
-- **[DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)** - Database structure
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture
-
-### Authentication & Security
-- **[TWO_FACTOR_AUTH_GUIDE.md](TWO_FACTOR_AUTH_GUIDE.md)** - 2FA implementation
-- **[EMAIL_VERIFICATION_QUICKSTART.md](EMAIL_VERIFICATION_QUICKSTART.md)** - Email verification
-- **[PASSWORD_RESET_QUICKREF.md](PASSWORD_RESET_QUICKREF.md)** - Password reset
-- **[RATELIMIT_QUICKREF.md](RATELIMIT_QUICKREF.md)** - Rate limiting
-
-### Payment & Tickets
-- **[PAYMENT_SYSTEM_INTASEND.md](PAYMENT_SYSTEM_INTASEND.md)** - Payment integration
-- **[TICKET_PDF_SYSTEM.md](TICKET_PDF_SYSTEM.md)** - PDF ticket generation
-- **[REFUND_NOTIFICATIONS_QUICK_REF.md](REFUND_NOTIFICATIONS_QUICK_REF.md)** - Refund system
-
-### Analytics & Monitoring
-- **[ANALYTICS_SYSTEM_README.md](ANALYTICS_SYSTEM_README.md)** - Analytics features
-- **[ORGANIZER_DASHBOARD_QUICK_REF.md](ORGANIZER_DASHBOARD_QUICK_REF.md)** - Dashboard
-- **[PROMETHEUS_GRAFANA_GUIDE.md](PROMETHEUS_GRAFANA_GUIDE.md)** - Monitoring setup
-
----
 
 ## 🏗️ Project Structure
 
@@ -252,7 +214,7 @@ docker-compose -f docker-compose.monitoring.yml up -d
 - Grafana: http://localhost:3001 (admin/admin123)
 ```
 
-See [PROMETHEUS_GRAFANA_GUIDE.md](PROMETHEUS_GRAFANA_GUIDE.md) for details.
+
 
 ---
 
@@ -327,7 +289,7 @@ GET    /api/tickets/:id/pdf   # Download PDF
 POST   /api/tickets/:id/verify # Verify ticket
 ```
 
-See [API_ROUTES.md](API_ROUTES.md) for complete API documentation.
+
 
 ---
 
@@ -349,21 +311,13 @@ This project is licensed under the MIT License.
 
 ## 🆘 Support
 
-- **Documentation**: See guides in repository root
+
 - **Issues**: Open a GitHub issue
-- **Email**: support@example.com
+- **Email**: kamausimon217@gmail.com
 
 ---
 
-## 🎯 Quick Links
 
-| What | Where |
-|------|-------|
-| **Deploy to Railway** | [RAILWAY_QUICKFIX.md](RAILWAY_QUICKFIX.md) |
-| **Local Setup** | [QUICK_START.md](QUICK_START.md) |
-| **API Reference** | [API_ROUTES.md](API_ROUTES.md) |
-| **Demo App** | [demo-app/README.md](demo-app/README.md) |
-| **Troubleshooting** | [DEPLOYMENT_VISUAL_GUIDE.md](DEPLOYMENT_VISUAL_GUIDE.md) |
 
 ---
 
