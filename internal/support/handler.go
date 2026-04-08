@@ -175,7 +175,7 @@ func (h *SupportHandler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 			OrderID:       ticket.OrderID,
 			EventID:       ticket.EventID,
 			CreatedAt:     ticket.CreatedAt.Format("January 2, 2006 at 3:04 PM"),
-			DashboardURL:  "http://localhost:3000",
+			DashboardURL:  "http://localhost:3000", // TODO: Get from config
 			AIClassified:  ticket.AIClassified,
 			AIPriority:    ticket.AIPriority,
 			AIConfidence:  int(ticket.AIConfidenceScore * 100),
