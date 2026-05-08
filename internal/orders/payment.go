@@ -12,7 +12,7 @@ import (
 )
 
 // ProcessPayment handles processing payment for an order
-// DEPRECATED: Use the /api/payments/initiate endpoint instead for Intasend integration
+
 // This endpoint is maintained for backward compatibility with offline payments only
 func (h *OrderHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -85,8 +85,6 @@ func (h *OrderHandler) ProcessPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process payment based on method
-	// Only offline payments are supported through this endpoint
-	// For M-Pesa and Card payments, use /api/payments/initiate endpoint with Intasend
 	var paymentResult map[string]interface{}
 	switch req.PaymentMethod {
 	case "offline":
