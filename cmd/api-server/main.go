@@ -20,6 +20,7 @@ import (
 	"ticketing_system/internal/notifications"
 	"ticketing_system/internal/orders"
 	"ticketing_system/internal/organizers"
+	"ticketing_system/internal/outbox"
 	"ticketing_system/internal/payments"
 	"ticketing_system/internal/promotions"
 	"ticketing_system/internal/refunds"
@@ -227,7 +228,8 @@ func main() {
 	eventHandler := events.NewEventHandler(DB, metrics, storageService, eventsCache)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
-	orderHandler := orders.NewOrderHandler(DB, metrics, paymentHandler, notificationService)
+	outboxRepo := outbox.NewRepository(DB)
+	orderHandler := orders.NewOrderHandler(DB, metrics, paymentHandler, notificationService, outboxRepo)
 	var ticketHandler *tickets.TicketHandler
 	if cfg != nil && cfg.Email.Host != "" {
 		notificationService := notifications.NewNotificationService(cfg)
