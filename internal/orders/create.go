@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	apievents "ticketing_system/internal/api_events"
+	kafkatopics "ticketing_system/internal/kafka"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"
@@ -129,7 +131,6 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		var ticketClass models.TicketClass
 
 		// Use FOR UPDATE to lock the row and prevent concurrent modifications
-		// This ensures only one transaction can update inventory at a time
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", itemReq.TicketClassID).First(&ticketClass).Error; err != nil {
 			tx.Rollback()
 			middleware.WriteJSONError(w, http.StatusNotFound, fmt.Sprintf("ticket class %d not found", itemReq.TicketClassID))
@@ -212,6 +213,13 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	// Delete any reservations for this user and these tickets (reservation converted to order)
 	sessionID := fmt.Sprintf("user_%d", userID)
 	tx.Where("session_id = ? AND event_id = ?", sessionID, req.EventID).Delete(&models.ReservedTicket{})
+
+	// Build the outbox event — must happen inside the transaction so the event and the order either both commit or both roll back.
+	if err := h.publishOrderCreatedEvent(tx, order, req, calculation); err != nil {
+		tx.Rollback()
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to queue order event")
+		return
+	}
 
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
@@ -309,4 +317,50 @@ func validateCreateOrderRequest(req CreateOrderRequest) error {
 func isValidEmail(email string) bool {
 	email = strings.TrimSpace(email)
 	return len(email) > 3 && strings.Contains(email, "@") && strings.Contains(email, ".")
+}
+
+// publishOrderCreatedEvent builds the OrderCreatedEvent payload and writes it
+// to the outbox table using the provided transaction.
+func (h *OrderHandler) publishOrderCreatedEvent(tx *gorm.DB, order models.Order, req CreateOrderRequest, calc *OrderCalculation) error {
+	items := make([]apievents.OrderEventItem, len(req.Items))
+	for i, item := range req.Items {
+		items[i] = apievents.OrderEventItem{
+			TicketClassID: fmt.Sprintf("%d", item.TicketClassID),
+			Quantity:      item.Quantity,
+			UnitPrice:     calc.Subtotal / float64(item.Quantity),
+			TotalPrice:    calc.Subtotal,
+		}
+	}
+
+	evt := apievents.OrderCreatedEvent{
+		OrderID:       fmt.Sprintf("%d", order.ID),
+		OrderNumber:   generateOrderNumber(order.ID),
+		AccountID:     fmt.Sprintf("%d", order.AccountID),
+		EventID:       fmt.Sprintf("%d", order.EventID),
+		FirstName:     order.FirstName,
+		LastName:      order.LastName,
+		Email:         order.Email,
+		Amount:        float64(order.Amount),
+		TaxAmount:     float64(order.TaxAmount),
+		TotalAmount:   calc.TotalAmount,
+		Currency:      order.Currency,
+		Status:        string(order.Status),
+		PaymentStatus: string(order.PaymentStatus),
+		PaymentMethod: req.PaymentMethod,
+		IsBusiness:    order.IsBusiness,
+		BusinessName:  order.BusinessName,
+		Items:         items,
+		Timestamp:     time.Now(),
+	}
+
+	payload, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+
+	return h.outboxRepo.Save(tx, models.OutboxEvent{
+		Topic:   kafkatopics.OrderCreatedTopic,
+		Payload: string(payload),
+		Status:  "pending",
+	})
 }
