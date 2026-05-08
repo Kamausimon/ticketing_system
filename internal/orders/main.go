@@ -5,6 +5,7 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/outbox"
 	"ticketing_system/internal/payments"
 	"time"
 
@@ -17,15 +18,17 @@ type OrderHandler struct {
 	metrics             *analytics.PrometheusMetrics
 	paymentHandler      *payments.PaymentHandler
 	notificationService *notifications.NotificationService
+	outboxRepo          *outbox.Repository
 }
 
 // NewOrderHandler creates a new order handler
-func NewOrderHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, paymentHandler *payments.PaymentHandler, notifService *notifications.NotificationService) *OrderHandler {
+func NewOrderHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, paymentHandler *payments.PaymentHandler, notifService *notifications.NotificationService, outboxRepo *outbox.Repository) *OrderHandler {
 	return &OrderHandler{
 		db:                  db,
 		metrics:             metrics,
 		paymentHandler:      paymentHandler,
 		notificationService: notifService,
+		outboxRepo:          outboxRepo,
 	}
 }
 
