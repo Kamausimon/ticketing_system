@@ -30,6 +30,21 @@ func (r *Repository) FetchPending(limit int) ([]models.OutboxEvent, error) {
 	return events, err
 }
 
+// IncrementRetry bumps the retry counter. If exhausted is true the status is
+// set to "failed" so the publisher stops retrying and it can be investigated.
+func (r *Repository) IncrementRetry(id uint, exhausted bool) {
+	status := "pending"
+	if exhausted {
+		status = "failed"
+	}
+	r.db.Model(&models.OutboxEvent{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"retry_count": gorm.Expr("retry_count + 1"),
+			"status":      status,
+		})
+}
+
 // MarkPublished sets status to published and records the publish timestamp.
 func (r *Repository) MarkPublished(id uint) error {
 	now := time.Now()
