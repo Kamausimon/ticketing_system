@@ -240,9 +240,6 @@ func main() {
 	promotionHandler := promotions.NewPromotionHandler(DB, metrics)
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
 
-	// Start automatic reservation cleanup
-	inventoryHandler.StartReservationCleanup()
-
 	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)

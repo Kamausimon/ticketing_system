@@ -3,7 +3,6 @@ package inventory
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/middleware"
@@ -77,53 +76,6 @@ func (h *InventoryHandler) ReleaseExpiredReservations(w http.ResponseWriter, r *
 	})
 }
 
-// StartReservationCleanup starts a background goroutine that automatically cleans up expired reservations
-func (h *InventoryHandler) StartReservationCleanup() {
-	go func() {
-		ticker := time.NewTicker(60 * time.Minute) // Check every minute
-		defer ticker.Stop()
-
-		log.Println("🧹 Reservation cleanup background job started")
-
-		for range ticker.C {
-			var expiredReservations []models.ReservedTicket
-			if err := h.db.Where("expires <= ?", time.Now()).Find(&expiredReservations).Error; err != nil {
-				log.Printf("⚠️  Error fetching expired reservations: %v", err)
-				continue
-			}
-
-			if len(expiredReservations) > 0 {
-				// Group by event and ticket class to notify waitlist
-				eventTickets := make(map[uint]map[uint]int) // eventID -> ticketClassID -> quantity
-
-				var reservationIDs []uint
-				for _, res := range expiredReservations {
-					reservationIDs = append(reservationIDs, res.ID)
-
-					// Track released quantity by event and ticket class
-					if _, exists := eventTickets[res.EventID]; !exists {
-						eventTickets[res.EventID] = make(map[uint]int)
-					}
-					eventTickets[res.EventID][res.TicketID] += res.QuantityReserved
-				}
-
-				if err := h.db.Where("id IN ?", reservationIDs).Delete(&models.ReservedTicket{}).Error; err != nil {
-					log.Printf("⚠️  Error releasing expired reservations: %v", err)
-				} else {
-					log.Printf("🧹 Released %d expired reservations", len(reservationIDs))
-
-					// Notify waitlist for each event/ticket class
-					for eventID, tickets := range eventTickets {
-						for ticketClassID, quantity := range tickets {
-							tcID := ticketClassID
-							h.autoNotifyWaitlist(eventID, &tcID, quantity)
-						}
-					}
-				}
-			}
-		}
-	}()
-}
 
 // ConvertReservationToOrder converts a reservation to an actual order
 // This should be called by the orders module when checkout completes
