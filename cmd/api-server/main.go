@@ -225,10 +225,10 @@ func main() {
 	} else {
 		organizerHandler = organizers.NewOrganizerHandler(DB, metrics, nil, encryptionService, storageService)
 	}
-	eventHandler := events.NewEventHandler(DB, metrics, storageService, eventsCache)
+	outboxRepo := outbox.NewRepository(DB)
+	eventHandler := events.NewEventHandler(DB, metrics, storageService, eventsCache, outboxRepo)
 	accountHandler := accounts.NewAccountHandler(DB, metrics)
 	paymentHandler := payments.NewPaymentHandler(DB, metrics, notificationService)
-	outboxRepo := outbox.NewRepository(DB)
 	orderHandler := orders.NewOrderHandler(DB, metrics, paymentHandler, notificationService, outboxRepo)
 	var ticketHandler *tickets.TicketHandler
 	if cfg != nil && cfg.Email.Host != "" {

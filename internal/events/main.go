@@ -4,6 +4,7 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/cache"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/outbox"
 	"ticketing_system/internal/storage"
 	"time"
 
@@ -12,19 +13,21 @@ import (
 
 // EventHandler handles all event-related operations
 type EventHandler struct {
-	db      *gorm.DB
-	metrics *analytics.PrometheusMetrics
-	storage *storage.StorageService
-	cache   *cache.EventsCache
+	db         *gorm.DB
+	metrics    *analytics.PrometheusMetrics
+	storage    *storage.StorageService
+	cache      *cache.EventsCache
+	outboxRepo *outbox.Repository
 }
 
 // NewEventHandler creates a new event handler
-func NewEventHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, storageService *storage.StorageService, eventsCache *cache.EventsCache) *EventHandler {
+func NewEventHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, storageService *storage.StorageService, eventsCache *cache.EventsCache, outboxRepo *outbox.Repository) *EventHandler {
 	return &EventHandler{
-		db:      db,
-		metrics: metrics,
-		storage: storageService,
-		cache:   eventsCache,
+		db:         db,
+		metrics:    metrics,
+		storage:    storageService,
+		cache:      eventsCache,
+		outboxRepo: outboxRepo,
 	}
 }
 

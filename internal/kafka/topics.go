@@ -9,4 +9,6 @@ const (
 
 	ReservationExpiredTopic = "reservation.expired"
 	InventoryReleasedTopic  = "inventory.released"
+
+	EventCancelledTopic = "event.cancelled"
 )

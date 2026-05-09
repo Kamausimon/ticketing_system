@@ -6,6 +6,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	apievents "ticketing_system/internal/api_events"
+	kafkatopics "ticketing_system/internal/kafka"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 
@@ -346,11 +350,48 @@ func (h *EventHandler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Soft delete for published events (change status to cancelled)
+		// Soft delete for published events: cancel status and publish the
+		// event.cancelled outbox entry in the same transaction so the cascade
+		// worker is guaranteed to fire even if the process restarts.
+		tx := h.db.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
 		event.Status = models.EventCancelled
 		event.IsLive = false
-		if err := h.db.Save(&event).Error; err != nil {
+		if err := tx.Save(&event).Error; err != nil {
+			tx.Rollback()
 			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to cancel event")
+			return
+		}
+
+		evt := apievents.EventCancelledEvent{
+			EventID:     event.ID,
+			OrganizerID: organizer.ID,
+			Title:       event.Title,
+			Timestamp:   time.Now(),
+		}
+		payload, err := json.Marshal(evt)
+		if err != nil {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to prepare cancellation event")
+			return
+		}
+		if err := h.outboxRepo.Save(tx, models.OutboxEvent{
+			Topic:   kafkatopics.EventCancelledTopic,
+			Payload: string(payload),
+			Status:  "pending",
+		}); err != nil {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to queue cancellation event")
+			return
+		}
+
+		if err := tx.Commit().Error; err != nil {
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to commit cancellation")
 			return
 		}
 	}
