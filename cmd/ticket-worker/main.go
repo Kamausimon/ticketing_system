@@ -29,7 +29,7 @@ func main() {
 		brokers = []string{"localhost:9092"}
 	}
 
-	consumer := kafka.NewConsumer(brokers, kafkatopics.OrderPaymentConfirmedTopic, "ticket-worker")
+	consumer := kafka.NewConsumer(brokers, kafkatopics.PaymentCompletedTopic, "ticket-worker")
 	defer consumer.Close()
 
 	producer := kafka.NewProducer(brokers)
@@ -38,7 +38,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("ticket-worker started, listening on", kafkatopics.OrderPaymentConfirmedTopic)
+	log.Println("ticket-worker started, listening on", kafkatopics.PaymentCompletedTopic)
 	for {
 		msg, err := consumer.ReadMessage(ctx)
 		if err != nil {
@@ -61,18 +61,15 @@ func main() {
 }
 
 func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Producer, msg gokafka.Message) error {
-	var evt apievents.OrderPaymentConfirmedEvent
+	var evt apievents.PaymentCompletedEvent
 	if err := json.Unmarshal(msg.Value, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	var orderID uint
-	fmt.Sscanf(evt.OrderID, "%d", &orderID)
-
 	// Load order with all relations needed for ticket generation.
 	var order models.Order
-	if err := db.Preload("OrderItems.TicketClass").First(&order, orderID).Error; err != nil {
-		return fmt.Errorf("order %d not found: %w", orderID, err)
+	if err := db.Preload("OrderItems.TicketClass").First(&order, evt.OrderID).Error; err != nil {
+		return fmt.Errorf("order %d not found: %w", evt.OrderID, err)
 	}
 
 	tx := db.Begin()
@@ -83,7 +80,7 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 	}()
 
 	for _, item := range order.OrderItems {
-		// Idempotency check — skip if tickets already exist for this item.
+		// Idempotency check — webhook may have already created tickets.
 		var count int64
 		tx.Model(&models.Ticket{}).Where("order_item_id = ?", item.ID).Count(&count)
 		if count > 0 {
@@ -93,10 +90,10 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 		for i := 0; i < item.Quantity; i++ {
 			ticket := models.Ticket{
 				OrderItemID:  item.ID,
-				TicketNumber: fmt.Sprintf("TKT-%d-%d-%d-%d", item.TicketClass.EventID, orderID, item.ID, i),
+				TicketNumber: fmt.Sprintf("TKT-%d-%d-%d-%d", item.TicketClass.EventID, evt.OrderID, item.ID, i),
 				HolderName:   fmt.Sprintf("%s %s", order.FirstName, order.LastName),
 				HolderEmail:  order.Email,
-				QRCode:       fmt.Sprintf("QR-%d-%d-%d", item.TicketClass.EventID, orderID, i),
+				QRCode:       fmt.Sprintf("QR-%d-%d-%d", item.TicketClass.EventID, evt.OrderID, i),
 				Status:       models.TicketActive,
 			}
 			if err := tx.Create(&ticket).Error; err != nil {
@@ -119,21 +116,38 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 		return fmt.Errorf("commit: %w", err)
 	}
 
+	orderIDStr := fmt.Sprintf("%d", evt.OrderID)
+
+	// Publish order.confirmed so the notification-worker sends the order confirmation email.
 	confirmed := apievents.OrderConfirmedEvent{
+		OrderID:   orderIDStr,
+		AccountID: fmt.Sprintf("%d", evt.AccountID),
+		EventID:   fmt.Sprintf("%d", evt.EventID),
+		Timestamp: now,
+	}
+	confirmedPayload, err := json.Marshal(confirmed)
+	if err != nil {
+		return fmt.Errorf("marshal order.confirmed: %w", err)
+	}
+	if err := producer.Publish(ctx, kafkatopics.OrderConfirmedTopic, orderIDStr, confirmedPayload); err != nil {
+		return fmt.Errorf("publish order.confirmed: %w", err)
+	}
+
+	// Publish tickets.generated so the ticket-email-worker sends PDF ticket emails.
+	generated := apievents.TicketsGeneratedEvent{
 		OrderID:   evt.OrderID,
 		AccountID: evt.AccountID,
-		EventID:   fmt.Sprintf("%d", order.EventID),
-		Timestamp: time.Now(),
+		EventID:   evt.EventID,
+		Timestamp: now,
 	}
-	payload, err := json.Marshal(confirmed)
+	generatedPayload, err := json.Marshal(generated)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		return fmt.Errorf("marshal tickets.generated: %w", err)
+	}
+	if err := producer.Publish(ctx, kafkatopics.TicketsGeneratedTopic, orderIDStr, generatedPayload); err != nil {
+		return fmt.Errorf("publish tickets.generated: %w", err)
 	}
 
-	if err := producer.Publish(ctx, kafkatopics.OrderConfirmedTopic, evt.OrderID, payload); err != nil {
-		return fmt.Errorf("publish order_confirmed: %w", err)
-	}
-
-	log.Printf("ticket-worker: generated tickets for order %d", orderID)
+	log.Printf("ticket-worker: generated tickets for order %d", evt.OrderID)
 	return nil
 }

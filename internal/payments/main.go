@@ -7,6 +7,7 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/outbox"
 
 	"gorm.io/gorm"
 )
@@ -15,27 +16,23 @@ type PaymentHandler struct {
 	db                     *gorm.DB
 	metrics                *analytics.PrometheusMetrics
 	notificationService    *notifications.NotificationService
+	outboxRepo             *outbox.Repository
 	IntasendPublishableKey string
 	IntasendSecretKey      string
 	IntasendWebhookSecret  string
 	IntasendTestMode       bool
-	// StripeSecretKey      string // Commented - for future international expansion
-	// StripePublishableKey string
-	// StripeWebhookSecret  string
 }
 
-func NewPaymentHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notifService *notifications.NotificationService) *PaymentHandler {
+func NewPaymentHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notifService *notifications.NotificationService, outboxRepo *outbox.Repository) *PaymentHandler {
 	return &PaymentHandler{
 		db:                     db,
 		metrics:                metrics,
 		notificationService:    notifService,
+		outboxRepo:             outboxRepo,
 		IntasendPublishableKey: os.Getenv("INTASEND_PUBLISHABLE_KEY"),
 		IntasendSecretKey:      os.Getenv("INTASEND_SECRET_KEY"),
 		IntasendWebhookSecret:  os.Getenv("INTASEND_WEBHOOK_SECRET"),
 		IntasendTestMode:       os.Getenv("INTASEND_TEST_MODE") == "true",
-		// StripeSecretKey:      os.Getenv("STRIPE_SECRET_KEY"),
-		// StripePublishableKey: os.Getenv("STRIPE_PUBLISHABLE_KEY"),
-		// StripeWebhookSecret:  os.Getenv("STRIPE_WEBHOOK_SECRET"),
 	}
 }
 

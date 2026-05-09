@@ -9,14 +9,11 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	apievents "ticketing_system/internal/api_events"
+	kafkatopics "ticketing_system/internal/kafka"
 	"ticketing_system/internal/models"
-	"ticketing_system/internal/notifications"
-	"ticketing_system/pkg/pdf"
-	"ticketing_system/pkg/qrcode"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -342,25 +339,44 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 			return false, fmt.Errorf("failed to mark order as fulfilled: %w", err)
 		}
 
+		// Save payment.completed to the outbox inside this transaction.
+		// This is atomic with the ticket creation above — if the commit fails,
+		// the outbox row is never written and no spurious ticket-worker run fires.
+		evt := apievents.PaymentCompletedEvent{
+			OrderID:   order.ID,
+			AccountID: order.AccountID,
+			EventID:   order.EventID,
+			Amount:    int64(order.TotalAmount),
+			Currency:  order.Currency,
+			Provider:  event.Provider,
+			Timestamp: now,
+		}
+		payload, err := json.Marshal(evt)
+		if err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("marshal payment.completed: %w", err)
+		}
+		if err := h.outboxRepo.Save(tx, models.OutboxEvent{
+			Topic:   kafkatopics.PaymentCompletedTopic,
+			Payload: string(payload),
+			Status:  "pending",
+		}); err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("save payment.completed outbox: %w", err)
+		}
+
 		log.Printf("✅ Payment verified and tickets generated for order %d", order.ID)
 	}
 
-	// Commit transaction - payment + tickets succeed together
+	// Commit transaction - payment + tickets + outbox event succeed together
 	if err := tx.Commit().Error; err != nil {
 		return false, fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	committed = true // Mark as committed to prevent rollback in defer
+	committed = true
 
-	// Track metrics (after successful commit)
 	if h.metrics != nil && paymentRecord.OrderID != nil {
-		// Calculate duration from payment initiation to completion
 		duration := time.Since(paymentRecord.InitiatedAt)
 		h.metrics.TrackPaymentSuccess(event.Provider, "intasend", duration)
-	}
-
-	// Trigger PDF generation and ticket emails after successful commit
-	if paymentRecord.OrderID != nil {
-		go h.generateAndEmailTickets(*paymentRecord.OrderID)
 	}
 
 	return true, nil
@@ -583,209 +599,6 @@ func (h *PaymentHandler) processIntasendWebhookSafe(event *IntasendWebhookEvent)
 	return h.processIntasendWebhook(event)
 }
 
-// generateAndEmailTickets generates PDFs and sends ticket emails with the ticketgenerated template
-func (h *PaymentHandler) generateAndEmailTickets(orderID uint) {
-	log.Printf("🎫 Starting ticket generation and email sending for order %d", orderID)
-
-	if h.notificationService == nil {
-		log.Printf("⚠️ Notification service not available, skipping ticket emails for order %d", orderID)
-		return
-	}
-
-	// Load all tickets for this order
-	var tickets []models.Ticket
-	if err := h.db.Preload("OrderItem.TicketClass.Event").
-		Preload("OrderItem.Order").
-		Joins("JOIN order_items ON tickets.order_item_id = order_items.id").
-		Where("order_items.order_id = ?", orderID).
-		Find(&tickets).Error; err != nil {
-		log.Printf("❌ Failed to load tickets for order %d: %v", orderID, err)
-		return
-	}
-
-	if len(tickets) == 0 {
-		log.Printf("⚠️ No tickets found for order %d", orderID)
-		return
-	}
-
-	log.Printf("📧 Found %d tickets for order %d. Generating PDFs and sending emails...", len(tickets), orderID)
-
-	// Import PDF and QR code generators
-	pdfGenerator := h.createPDFGenerator()
-	qrGenerator := h.createQRGenerator()
-
-	// Generate PDFs and send emails for each ticket
-	for i := range tickets {
-		ticket := &tickets[i]
-		event := &ticket.OrderItem.TicketClass.Event
-		order := &ticket.OrderItem.Order
-
-		// Generate PDF with QR code
-		log.Printf("🔄 Generating PDF for ticket %s (Event: %s, Holder: %s)", ticket.TicketNumber, event.Title, ticket.HolderEmail)
-		pdfPath, pdfData, err := h.generateTicketPDFWithQR(ticket, event, order, pdfGenerator, qrGenerator)
-		if err != nil {
-			log.Printf("❌ Failed to generate PDF for ticket %s: %v", ticket.TicketNumber, err)
-		} else {
-			// Update ticket with PDF path
-			h.db.Model(ticket).Update("pdf_path", pdfPath)
-			log.Printf("✅ Generated PDF for ticket %s at %s (size: %d bytes)", ticket.TicketNumber, pdfPath, len(pdfData))
-		}
-
-		// Prepare email with PDF attachment
-		emailData := notifications.EmailData{
-			To:      []string{ticket.HolderEmail},
-			Subject: fmt.Sprintf("Your Ticket for %s", event.Title),
-		}
-
-		// Add PDF attachment if generated successfully
-		if pdfData != nil {
-			emailData.Attachments = []notifications.Attachment{
-				{
-					Filename: fmt.Sprintf("ticket_%s.pdf", ticket.TicketNumber),
-					Content:  pdfData,
-					MimeType: "application/pdf",
-				},
-			}
-			log.Printf("📎 Added PDF attachment (%d bytes) to email", len(pdfData))
-		} else {
-			log.Printf("⚠️ No PDF data available for attachment")
-		}
-
-		emailData.HTMLBody = fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #10B981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
-        .ticket-box { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #10B981; }
-        .button { display: inline-block; background: #10B981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
-        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🎫 Your Ticket is Confirmed!</h1>
-        </div>
-        <div class="content">
-            <p>Hi <strong>%s</strong>,</p>
-            <p>Great news! Your ticket for <strong>%s</strong> has been confirmed.</p>
-            
-            <div class="ticket-box">
-                <h3>Ticket Details</h3>
-                <p><strong>Event:</strong> %s</p>
-                <p><strong>Date:</strong> %s</p>
-                <p><strong>Location:</strong> %s</p>
-                <p><strong>Ticket Type:</strong> %s</p>
-                <p><strong>Ticket Number:</strong> <code>%s</code></p>
-            </div>
-
-            <p><strong>What's Next?</strong></p>
-            <ul>
-                <li>Save your ticket number: <code>%s</code></li>
-                <li>You can view your ticket anytime in your account</li>
-                <li>Show your ticket at the event entrance</li>
-                <li>Arrive early on event day</li>
-            </ul>
-
-            <p><strong>Important:</strong> Keep your ticket number safe. You'll need it to check in at the event.</p>
-
-            <div class="footer">
-                <p>Questions? Contact support</p>
-                <p>&copy; 2025 Ticketing System. All rights reserved.</p>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`,
-			ticket.HolderName,
-			event.Title,
-			event.Title,
-			event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"),
-			event.Location,
-			ticket.OrderItem.TicketClass.Name,
-			ticket.TicketNumber,
-			ticket.TicketNumber,
-		)
-
-		log.Printf("📤 Sending email to %s with subject: %s", ticket.HolderEmail, emailData.Subject)
-		if err := h.notificationService.GetEmailService().Send(emailData); err != nil {
-			log.Printf("❌ Failed to send ticket email to %s: %v", ticket.HolderEmail, err)
-		} else {
-			log.Printf("✅ Ticket confirmation email sent to %s for ticket %s", ticket.HolderEmail, ticket.TicketNumber)
-		}
-	}
-
-	log.Printf("🎉 Completed ticket generation and email sending for order %d", orderID)
-}
-
-// Helper functions for PDF generation
-
-func (h *PaymentHandler) createPDFGenerator() *pdf.TicketGenerator {
-	return pdf.NewTicketGenerator()
-}
-
-func (h *PaymentHandler) createQRGenerator() *qrcode.Generator {
-	return qrcode.NewGenerator().WithSize(512)
-}
-
-func (h *PaymentHandler) generateTicketPDFWithQR(ticket *models.Ticket, event *models.Event, order *models.Order, pdfGen *pdf.TicketGenerator, qrGen *qrcode.Generator) (string, []byte, error) {
-	// Generate QR code content
-	qrContent := fmt.Sprintf("TICKET:%s|EVENT:%d|ATTENDEE:%s",
-		ticket.TicketNumber,
-		event.ID,
-		ticket.HolderName,
-	)
-
-	// Generate QR code bytes
-	qrBytes, err := qrGen.GenerateBytes(qrContent)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to generate QR code: %w", err)
-	}
-
-	// Prepare ticket data for PDF
-	ticketData := pdf.TicketData{
-		TicketNumber:  ticket.TicketNumber,
-		EventName:     event.Title,
-		EventDate:     event.StartDate,
-		EventTime:     event.StartDate.Format("3:04 PM"),
-		VenueName:     event.Location,
-		VenueAddress:  event.Location,
-		AttendeeName:  ticket.HolderName,
-		AttendeeEmail: ticket.HolderEmail,
-		TicketType:    ticket.OrderItem.TicketClass.Name,
-		Price:         float64(ticket.OrderItem.UnitPrice) / 100.0,
-		Currency:      string(order.Currency),
-		QRCode:        qrBytes,
-		OrderNumber:   fmt.Sprintf("ORD-%d", order.ID),
-		PurchaseDate:  order.CreatedAt,
-	}
-
-	// Create storage directory
-	storageDir := filepath.Join("storage", "tickets", fmt.Sprintf("%d", order.ID))
-	if err := os.MkdirAll(storageDir, 0755); err != nil {
-		return "", nil, fmt.Errorf("failed to create storage directory: %w", err)
-	}
-
-	// Generate PDF to file
-	pdfFileName := fmt.Sprintf("ticket_%s.pdf", ticket.TicketNumber)
-	pdfPath := filepath.Join(storageDir, pdfFileName)
-
-	if err := pdfGen.GenerateToFile(ticketData, pdfPath); err != nil {
-		return "", nil, fmt.Errorf("failed to generate PDF: %w", err)
-	}
-
-	// Read PDF bytes for email attachment
-	pdfBytes, err := os.ReadFile(pdfPath)
-	if err != nil {
-		return pdfPath, nil, fmt.Errorf("failed to read PDF: %w", err)
-	}
-
-	return pdfPath, pdfBytes, nil
-}
 
 // STRIPE WEBHOOK HANDLER - COMMENTED OUT FOR FUTURE USE
 /*

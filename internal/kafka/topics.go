@@ -11,4 +11,7 @@ const (
 	InventoryReleasedTopic  = "inventory.released"
 
 	EventCancelledTopic = "event.cancelled"
+
+	PaymentCompletedTopic = "payment.completed"
+	TicketsGeneratedTopic = "tickets.generated"
 )
