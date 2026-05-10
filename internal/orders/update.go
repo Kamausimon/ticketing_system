@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/outbox"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -415,8 +416,8 @@ func (h *OrderHandler) RefundOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send refund notification email to customer
-	if h.notificationService != nil && req.NotifyCustomer {
-		go h.sendRefundNotificationEmail(&order, refundAmount, req.Reason)
+	if req.NotifyCustomer {
+		h.sendRefundNotificationEmail(&order, refundAmount, req.Reason)
 	}
 
 	response := map[string]interface{}{
@@ -464,13 +465,7 @@ func isValidStatusTransition(currentStatus, newStatus models.OrderStatus) bool {
 
 // sendRefundNotificationEmail sends refund confirmation email to customer
 func (h *OrderHandler) sendRefundNotificationEmail(order *models.Order, refundAmount float64, reason string) {
-	if h.notificationService == nil {
-		return
-	}
-
-	// Prepare email body
-	emailBody := fmt.Sprintf(`
-Dear Customer,
+	body := fmt.Sprintf(`Dear Customer,
 
 Your refund has been successfully processed.
 
@@ -485,16 +480,13 @@ The refund will be credited to your original payment method within 3-5 business 
 If you have any questions, please contact support.
 
 Best regards,
-The Ticketing Team
-`, order.ID, refundAmount, order.Currency, reason, order.Event.Title)
+The Ticketing Team`, order.ID, refundAmount, order.Currency, reason, order.Event.Title)
 
-	// Send email
-	if err := h.notificationService.SendPlainEmail(
-		[]string{order.Email},
+	if err := outbox.QueueEmail(h.db, []string{order.Email},
 		fmt.Sprintf("Refund Processed - Order #%d", order.ID),
-		emailBody,
+		body,
+		"order_refund_notification",
 	); err != nil {
-		// Log error but don't fail the refund
-		fmt.Printf("Failed to send refund notification email: %v\n", err)
+		fmt.Printf("outbox.QueueEmail order_refund_notification: %v\n", err)
 	}
 }

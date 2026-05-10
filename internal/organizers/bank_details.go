@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
+	"ticketing_system/internal/outbox"
 	"ticketing_system/internal/security"
 )
 
@@ -98,7 +100,7 @@ func (h *OrganizerHandler) UpdateBankDetails(w http.ResponseWriter, r *http.Requ
 
 	// Send notification email if this is an update (not first time setup)
 	if isUpdate && h.notifications != nil {
-		go h.sendBankDetailsChangeNotification(organizer, user, r)
+		h.sendBankDetailsChangeNotification(organizer, user, r)
 	}
 
 	response := BankDetailsResponse{
@@ -165,27 +167,39 @@ func (h *OrganizerHandler) GetBankDetails(w http.ResponseWriter, r *http.Request
 
 // sendBankDetailsChangeNotification sends email notification when bank details are changed
 func (h *OrganizerHandler) sendBankDetailsChangeNotification(organizer models.Organizer, user models.User, r *http.Request) {
-	// Get all users in the same account for notification
 	var accountUsers []models.User
 	if err := h.db.Where("account_id = ?", user.AccountID).Find(&accountUsers).Error; err != nil {
 		fmt.Printf("Failed to get account users: %v\n", err)
 		return
 	}
 
-	// Send notification to all users in the account
-	for _, accountUser := range accountUsers {
-		emailData := map[string]interface{}{
-			"Name":           accountUser.FirstName + " " + accountUser.LastName,
-			"OrganizerName":  organizer.Name,
-			"ChangedBy":      user.FirstName + " " + user.LastName,
-			"ChangedByEmail": user.Email,
-			"IPAddress":      getClientIP(r),
-			"Timestamp":      fmt.Sprintf("%s", r.Context().Value("timestamp")),
-			"SupportEmail":   h.notifications.GetSupportEmail(),
-		}
+	ip := getClientIP(r)
+	changedBy := user.FirstName + " " + user.LastName
+	ts := time.Now().Format("January 2, 2006 at 3:04 PM")
 
-		if err := h.notifications.SendBankDetailsChangeNotification(accountUser.Email, emailData); err != nil {
-			fmt.Printf("Failed to send bank details change notification to %s: %v\n", accountUser.Email, err)
+	for _, accountUser := range accountUsers {
+		body := fmt.Sprintf(`Security Alert: Bank Details Updated
+
+Hi %s,
+
+The bank account details for organizer "%s" were updated.
+
+Changed by: %s (%s)
+Time:       %s
+IP address: %s
+
+If you did not authorise this change, contact support immediately and change your password.
+
+Ticketing System Security Team`,
+			accountUser.FirstName+" "+accountUser.LastName,
+			organizer.Name, changedBy, user.Email, ts, ip,
+		)
+		if err := outbox.QueueEmail(h.db, []string{accountUser.Email},
+			"Security Alert: Bank Details Updated",
+			body,
+			"bank_details_changed",
+		); err != nil {
+			fmt.Printf("outbox.QueueEmail bank_details_changed for %s: %v\n", accountUser.Email, err)
 		}
 	}
 }
