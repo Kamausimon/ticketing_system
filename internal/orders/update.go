@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	apievents "ticketing_system/internal/api_events"
+	kafkatopics "ticketing_system/internal/kafka"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/outbox"
@@ -135,9 +137,9 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get order
+	// Get order — preload Event for organizer ID and email body, TicketClass for inventory events.
 	var order models.Order
-	if err := h.db.Preload("OrderItems").First(&order, orderID).Error; err != nil {
+	if err := h.db.Preload("OrderItems.TicketClass").Preload("Event").First(&order, orderID).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "order not found")
 		return
 	}
@@ -216,6 +218,100 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If the customer already paid, create an approved refund record so the
+	// refund-processor worker (issue #8) can issue the actual payment reversal.
+	if order.PaymentStatus == models.PaymentCompleted {
+		refundNumber := fmt.Sprintf("REF-CANCEL-ORD%d-%d", order.ID, now.Unix())
+		refund := models.RefundRecord{
+			RefundNumber:    refundNumber,
+			RefundType:      models.RefundFull,
+			RefundReason:    models.RefundCustomerRequest,
+			Status:          models.RefundApproved,
+			OrderID:         order.ID,
+			EventID:         order.EventID,
+			AccountID:       order.AccountID,
+			OrganizerID:     order.Event.OrganizerID,
+			OriginalAmount:  order.TotalAmount,
+			RefundAmount:    order.TotalAmount,
+			OrganizerImpact: order.TotalAmount,
+			Currency:        order.Currency,
+			RequestedAt:     now,
+			ApprovedAt:      &now,
+			Description:     fmt.Sprintf("Customer cancelled order #%d", order.ID),
+		}
+		if err := tx.Create(&refund).Error; err != nil {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create refund record")
+			return
+		}
+	}
+
+	// Publish order.cancelled for future consumers (analytics, audit).
+	cancelledEvt := apievents.OrderCancelledEvent{
+		OrderID:   fmt.Sprintf("%d", order.ID),
+		AccountID: fmt.Sprintf("%d", order.AccountID),
+		EventID:   fmt.Sprintf("%d", order.EventID),
+		Timestamp: now,
+	}
+	if err := h.outboxRepo.Save(tx, models.OutboxEvent{
+		Topic:   kafkatopics.OrderCancelledTopic,
+		Payload: mustMarshal(cancelledEvt),
+		Status:  "pending",
+	}); err != nil {
+		tx.Rollback()
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to queue cancellation event")
+		return
+	}
+
+	// Publish inventory.released per ticket class so the waitlist-worker fires.
+	for _, item := range order.OrderItems {
+		releasedEvt := apievents.InventoryReleasedEvent{
+			TicketClassID:    item.TicketClassID,
+			EventID:          order.EventID,
+			QuantityReleased: item.Quantity,
+			Reason:           "order_cancelled",
+			Timestamp:        now,
+		}
+		if err := h.outboxRepo.Save(tx, models.OutboxEvent{
+			Topic:   kafkatopics.InventoryReleasedTopic,
+			Payload: mustMarshal(releasedEvt),
+			Status:  "pending",
+		}); err != nil {
+			tx.Rollback()
+			middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to queue inventory event")
+			return
+		}
+	}
+
+	// Queue customer cancellation email — delivered by the email-worker.
+	emailBody := fmt.Sprintf(`Hi %s,
+
+Your order #%d for "%s" has been cancelled as requested.
+
+%sIf you have any questions please contact support.
+
+Ticketing System`,
+		order.FirstName,
+		order.ID,
+		order.Event.Title,
+		func() string {
+			if order.PaymentStatus == models.PaymentCompleted {
+				return fmt.Sprintf("A full refund of %s %.2f will be processed to your original payment method within 5-10 business days.\n\n",
+					order.Currency, float64(order.TotalAmount)/100)
+			}
+			return ""
+		}(),
+	)
+	if err := outbox.QueueEmail(tx, []string{order.Email},
+		fmt.Sprintf("Order #%d Cancelled", order.ID),
+		emailBody,
+		"order_cancelled",
+	); err != nil {
+		tx.Rollback()
+		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to queue cancellation email")
+		return
+	}
+
 	if err := tx.Commit().Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to cancel order")
 		return
@@ -233,6 +329,16 @@ func (h *OrderHandler) CancelOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(response)
+}
+
+// mustMarshal marshals v to JSON and panics on error — only used for internal
+// structs that are guaranteed to be marshallable.
+func mustMarshal(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("mustMarshal: %v", err))
+	}
+	return string(b)
 }
 
 // RefundOrder handles refunding an order
