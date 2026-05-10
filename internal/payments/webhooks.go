@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"gorm.io/gorm/clause"
 )
 
 // FlexibleFloat handles both string and float64 from JSON
@@ -122,6 +123,7 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 	now := time.Now()
 	headersJSON, _ := json.Marshal(r.Header)
 	userAgent := r.UserAgent()
+	idempotencyKey := fmt.Sprintf("intasend:%s:%s", event.InvoiceID, event.State)
 	webhookLog := models.WebhookLog{
 		Provider:          models.WebhookIntasend,
 		EventID:           event.ID,
@@ -135,11 +137,11 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 		SignatureValid:    true,
 		ProcessedAt:       &now,
 		ExternalReference: &event.InvoiceID,
+		IdempotencyKey:    &idempotencyKey,
 	}
 
-	// Try to create webhook log - will fail if duplicate exists due to unique constraint
+	// Try to create webhook log - will fail on unique constraint if duplicate
 	if err := h.db.Create(&webhookLog).Error; err != nil {
-		// Check if it's a duplicate
 		if h.checkDuplicateIntasendWebhook(event.InvoiceID, event.State) {
 			log.Printf("⚠️ Duplicate webhook event detected: InvoiceID=%s, State=%s", event.InvoiceID, event.State)
 			writeJSON(w, http.StatusOK, WebhookEventResponse{
@@ -149,8 +151,9 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 			})
 			return
 		}
-		// Not a duplicate, some other error
 		log.Printf("❌ Failed to log webhook: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to process webhook")
+		return
 	}
 
 	// Process the webhook based on state
@@ -213,16 +216,11 @@ func (h *PaymentHandler) processIntasendWebhook(event *IntasendWebhookEvent) (bo
 // handleIntasendComplete handles successful payment
 // ATOMIC TRANSACTION: Payment verification + ticket generation
 func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, paymentRecord *models.PaymentRecord) (bool, error) {
-	if paymentRecord.Status == models.RecordCompleted {
-		return true, nil // Already processed
-	}
-
 	tx := h.db.Begin()
 	if tx.Error != nil {
 		return false, fmt.Errorf("failed to start transaction: %w", tx.Error)
 	}
 
-	// Always ensure transaction is closed (either committed or rolled back)
 	committed := false
 	defer func() {
 		if r := recover(); r != nil {
@@ -233,6 +231,20 @@ func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, pay
 			log.Printf("⚠️ Transaction not committed, rolling back")
 		}
 	}()
+
+	// Lock the payment record inside the transaction — concurrent requests block here
+	// until the first one commits, then see RecordCompleted and exit early.
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(paymentRecord, paymentRecord.ID).Error; err != nil {
+		tx.Rollback()
+		return false, fmt.Errorf("failed to lock payment record: %w", err)
+	}
+
+	if paymentRecord.Status == models.RecordCompleted {
+		tx.Rollback()
+		committed = true
+		return true, nil
+	}
 
 	// Update payment record
 	now := time.Now()

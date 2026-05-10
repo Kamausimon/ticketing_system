@@ -77,7 +77,7 @@ type WebhookLog struct {
 	UserAgent       *string
 
 	// Idempotency
-	IdempotencyKey *string `gorm:"index"` // For preventing duplicate processing
+	IdempotencyKey *string `gorm:"uniqueIndex"` // For preventing duplicate processing
 	IsDuplicate    bool    `gorm:"default:false;index"`
 
 	// Metadata
