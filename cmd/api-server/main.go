@@ -241,7 +241,7 @@ func main() {
 	inventoryHandler := inventory.NewInventoryHandler(DB, metrics)
 
 	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
-	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
+	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, outboxRepo, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
 	settlementHandler := settlement.NewSettlementHandler(settlementService)
 	supportHandler := support.NewSupportHandler(DB, metrics, notificationService)

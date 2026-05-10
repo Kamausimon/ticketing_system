@@ -16,4 +16,7 @@ const (
 	TicketsGeneratedTopic = "tickets.generated"
 
 	NotificationEmailTopic = "notification.email.requested"
+
+	RefundApprovedTopic   = "refund.approved"
+	RefundCompletedTopic  = "refund.completed"
 )

@@ -6,25 +6,27 @@ import (
 	"ticketing_system/internal/analytics"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/outbox"
 
 	"gorm.io/gorm"
 )
 
 type RefundHandler struct {
 	db                  *gorm.DB
-	_metrics            *analytics.PrometheusMetrics // Reserved for future instrumentation
+	_metrics            *analytics.PrometheusMetrics
 	notificationService *notifications.NotificationService
-	// Payment handler for processing actual refunds through gateway
-	IntasendSecretKey     string
+	outboxRepo          *outbox.Repository
+	IntasendSecretKey   string
 	IntasendWebhookSecret string
 	IntasendTestMode      bool
 }
 
-func NewRefundHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService, intasendSecret, webhookSecret string, testMode bool) *RefundHandler {
+func NewRefundHandler(db *gorm.DB, metrics *analytics.PrometheusMetrics, notificationService *notifications.NotificationService, outboxRepo *outbox.Repository, intasendSecret, webhookSecret string, testMode bool) *RefundHandler {
 	return &RefundHandler{
 		db:                    db,
 		_metrics:              metrics,
 		notificationService:   notificationService,
+		outboxRepo:            outboxRepo,
 		IntasendSecretKey:     intasendSecret,
 		IntasendWebhookSecret: webhookSecret,
 		IntasendTestMode:      testMode,
