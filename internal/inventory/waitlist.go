@@ -3,7 +3,6 @@ package inventory
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"ticketing_system/internal/middleware"
@@ -434,98 +433,6 @@ func (h *InventoryHandler) NotifyNextInWaitlist(w http.ResponseWriter, r *http.R
 	})
 }
 
-// autoNotifyWaitlist automatically notifies waitlist when tickets become available
-// This is called internally after reservations are released or tickets become available
-func (h *InventoryHandler) autoNotifyWaitlist(eventID uint, ticketClassID *uint, availableQty int) {
-	if availableQty <= 0 {
-		return
-	}
-
-	// Find waiting entries that can be notified
-	query := h.db.Where("event_id = ? AND status = 'waiting' AND quantity <= ?", eventID, availableQty).
-		Order("priority DESC, created_at ASC")
-
-	if ticketClassID != nil {
-		query = query.Where("ticket_class_id = ? OR ticket_class_id IS NULL", *ticketClassID)
-	}
-
-	var entries []models.WaitlistEntry
-	if err := query.Limit(10).Find(&entries).Error; err != nil {
-		log.Printf("⚠️  Error fetching waitlist entries: %v", err)
-		return
-	}
-
-	if len(entries) == 0 {
-		return
-	}
-
-	notifiedCount := 0
-
-	for _, entry := range entries {
-		// Update entry status
-		now := time.Now()
-		expires := now.Add(24 * time.Hour)
-		entry.Status = "notified"
-		entry.NotifiedAt = &now
-		entry.ExpiresAt = &expires
-
-		if err := h.db.Save(&entry).Error; err != nil {
-			continue
-		}
-
-		// Load event details
-		var event models.Event
-		if err := h.db.First(&event, entry.EventID).Error; err != nil {
-			continue
-		}
-
-		// Load ticket class details if applicable
-		var ticketClassName string
-		var price float64
-		if entry.TicketClassID != nil {
-			var ticketClass models.TicketClass
-			if err := h.db.First(&ticketClass, *entry.TicketClassID).Error; err == nil {
-				ticketClassName = ticketClass.Name
-				price = float64(ticketClass.Price) / 100.0
-			}
-		}
-
-		// Get venue name
-		venueName := ""
-		if len(event.Venue) > 0 {
-			if event.Venue[0].VenueName == "" {
-				h.db.Model(&event).Association("Venue").Find(&event.Venue)
-			}
-			if len(event.Venue) > 0 {
-				venueName = event.Venue[0].VenueName
-			}
-		}
-
-		// Send notification
-		if h.notificationService != nil {
-			emailData := notifications.WaitlistNotificationData{
-				Name:            entry.Name,
-				EventName:       event.Title,
-				EventDate:       event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"),
-				VenueName:       venueName,
-				TicketClassName: ticketClassName,
-				Quantity:        entry.Quantity,
-				Price:           price,
-				Currency:        "KES",
-				ExpiresAt:       expires.Format("Monday, January 2, 2006 at 3:04 PM"),
-				PurchaseURL:     fmt.Sprintf("%s/events/%d", h.baseURL, event.ID),
-			}
-
-			if err := h.notificationService.SendWaitlistNotificationEmail(entry.Email, emailData); err == nil {
-				notifiedCount++
-			}
-		}
-	}
-
-	if notifiedCount > 0 {
-		log.Printf("📧 Automatically notified %d users from waitlist for event %d", notifiedCount, eventID)
-	}
-}
 
 // Helper: Convert waitlist entry to response
 func (h *InventoryHandler) convertToWaitlistResponse(entry *models.WaitlistEntry, eventName string, ticketClassName *string) WaitlistResponse {

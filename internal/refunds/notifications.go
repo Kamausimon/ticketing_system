@@ -6,6 +6,7 @@ import (
 
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/outbox"
 )
 
 // sendRefundRequestedEmail sends an email to the customer when refund is requested
@@ -34,17 +35,13 @@ func (h *RefundHandler) sendRefundRequestedEmail(refund *models.RefundRecord, or
 		ProcessingDays: 3,
 	}
 
-	// Send email
-	if err := h.notificationService.SendPlainEmail(
-		[]string{account.Email},
+	if err := outbox.QueueEmail(h.db, []string{account.Email},
 		fmt.Sprintf("Refund Request Received - %s", refund.RefundNumber),
 		generateRefundRequestEmailBody(&data),
+		"refund_requested",
 	); err != nil {
-		log.Printf("❌ Failed to send refund requested email: %v", err)
-		return
+		log.Printf("outbox.QueueEmail refund_requested: %v", err)
 	}
-
-	log.Printf("✅ Refund requested email sent to %s for refund %s", account.Email, refund.RefundNumber)
 }
 
 // sendRefundApprovedEmail sends an email to the customer when refund is approved
@@ -80,17 +77,13 @@ func (h *RefundHandler) sendRefundApprovedEmail(refund *models.RefundRecord) {
 		ProcessingDays: 3,
 	}
 
-	// Send email
-	if err := h.notificationService.SendPlainEmail(
-		[]string{account.Email},
+	if err := outbox.QueueEmail(h.db, []string{account.Email},
 		fmt.Sprintf("Refund Approved - %s", refund.RefundNumber),
 		generateRefundApprovedEmailBody(&data),
+		"refund_approved",
 	); err != nil {
-		log.Printf("❌ Failed to send refund approved email: %v", err)
-		return
+		log.Printf("outbox.QueueEmail refund_approved: %v", err)
 	}
-
-	log.Printf("✅ Refund approved email sent to %s for refund %s", account.Email, refund.RefundNumber)
 }
 
 // sendRefundRejectedEmail sends an email to the customer when refund is rejected
@@ -138,16 +131,13 @@ Best regards,
 Ticketing System Support Team
 `, account.FirstName+" "+account.LastName, refund.RefundNumber, order.ID, refund.Currency, float64(refund.RefundAmount)/100.0, rejectionReason)
 
-	if err := h.notificationService.SendPlainEmail(
-		[]string{account.Email},
+	if err := outbox.QueueEmail(h.db, []string{account.Email},
 		fmt.Sprintf("Refund Request Rejected - %s", refund.RefundNumber),
 		body,
+		"refund_rejected",
 	); err != nil {
-		log.Printf("❌ Failed to send refund rejected email: %v", err)
-		return
+		log.Printf("outbox.QueueEmail refund_rejected: %v", err)
 	}
-
-	log.Printf("✅ Refund rejected email sent to %s for refund %s", account.Email, refund.RefundNumber)
 }
 
 // sendRefundCompletedEmail sends an email to the customer when refund is completed
@@ -183,13 +173,17 @@ func (h *RefundHandler) sendRefundCompletedEmail(refund *models.RefundRecord) {
 		ProcessingDays: 3,
 	}
 
-	// Send email using the notification service template
-	if err := h.notificationService.SendRefundProcessedEmail(account.Email, data); err != nil {
-		log.Printf("❌ Failed to send refund completed email: %v", err)
-		return
+	// Re-use the same plain-text body the approved template uses so we don't
+	// need to call notificationService here (that would block on SMTP).
+	body := fmt.Sprintf("Dear %s,\n\nYour refund %s for order #%s of %s %.2f has been completed.\n\nIt will appear in your account within 3 business days.\n\nBest regards,\nTicketing System",
+		data.CustomerName, data.RefundID, data.OrderNumber, data.Currency, data.RefundAmount)
+	if err := outbox.QueueEmail(h.db, []string{account.Email},
+		fmt.Sprintf("Refund Completed - %s", refund.RefundNumber),
+		body,
+		"refund_completed",
+	); err != nil {
+		log.Printf("outbox.QueueEmail refund_completed: %v", err)
 	}
-
-	log.Printf("✅ Refund completed email sent to %s for refund %s", account.Email, refund.RefundNumber)
 }
 
 // sendOrganizerRefundPendingEmail sends an email to the organizer when a refund is pending approval
@@ -249,16 +243,13 @@ Best regards,
 Ticketing System
 `, account.FirstName+" "+account.LastName, refund.RefundNumber, order.ID, customerAccount.FirstName+" "+customerAccount.LastName, customerAccount.Email, event.Title, refund.Currency, float64(refund.RefundAmount)/100.0, refund.RefundType, refund.RefundReason, refund.RequestedAt.Format("2006-01-02 15:04:05"))
 
-	if err := h.notificationService.SendPlainEmail(
-		[]string{account.Email},
+	if err := outbox.QueueEmail(h.db, []string{account.Email},
 		fmt.Sprintf("New Refund Request - %s", refund.RefundNumber),
 		body,
+		"refund_organizer_pending",
 	); err != nil {
-		log.Printf("❌ Failed to send organizer refund notification: %v", err)
-		return
+		log.Printf("outbox.QueueEmail refund_organizer_pending: %v", err)
 	}
-
-	log.Printf("✅ Organizer refund notification sent to %s for refund %s", account.Email, refund.RefundNumber)
 }
 
 // Helper functions to generate email bodies

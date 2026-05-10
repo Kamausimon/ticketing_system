@@ -212,10 +212,8 @@ func (h *RefundHandler) RequestRefund(w http.ResponseWriter, r *http.Request) {
 	committed = true
 
 	// Send notification to customer about refund request
-	go h.sendRefundRequestedEmail(&refund, &order)
-
-	// Send notification to organizer about pending refund
-	go h.sendOrganizerRefundPendingEmail(&refund, &order)
+	h.sendRefundRequestedEmail(&refund, &order)
+	h.sendOrganizerRefundPendingEmail(&refund, &order)
 
 	writeJSON(w, http.StatusCreated, RefundResponse{
 		Success:      true,

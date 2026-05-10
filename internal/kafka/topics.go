@@ -14,4 +14,6 @@ const (
 
 	PaymentCompletedTopic = "payment.completed"
 	TicketsGeneratedTopic = "tickets.generated"
+
+	NotificationEmailTopic = "notification.email.requested"
 )

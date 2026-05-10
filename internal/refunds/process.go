@@ -133,7 +133,7 @@ func (h *RefundHandler) ProcessRefund(w http.ResponseWriter, r *http.Request) {
 	h.db.Save(&refund.Order)
 
 	// Send notification to customer about refund completion
-	go h.sendRefundCompletedEmail(&refund)
+	h.sendRefundCompletedEmail(&refund)
 
 	writeJSON(w, http.StatusOK, RefundResponse{
 		Success:      true,

@@ -208,9 +208,9 @@ func (h *RefundHandler) ApproveRefund(w http.ResponseWriter, r *http.Request) {
 
 	// Send notification to customer about approval/rejection
 	if req.Approved {
-		go h.sendRefundApprovedEmail(&refund)
+		h.sendRefundApprovedEmail(&refund)
 	} else {
-		go h.sendRefundRejectedEmail(&refund)
+		h.sendRefundRejectedEmail(&refund)
 	}
 
 	message := "Refund request approved successfully"

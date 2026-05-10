@@ -8,6 +8,7 @@ import (
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
+	"ticketing_system/internal/outbox"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -147,8 +148,8 @@ func (h *TicketHandler) TransferTicket(w http.ResponseWriter, r *http.Request) {
 	h.db.Create(&activity)
 
 	// Send email notifications
-	go h.sendTransferEmailToNewHolder(&ticket, originalHolderName)
-	go h.sendTransferConfirmationToOriginalHolder(originalHolderName, originalHolderEmail, &ticket)
+	h.sendTransferEmailToNewHolder(&ticket, originalHolderName)
+	h.sendTransferConfirmationToOriginalHolder(originalHolderName, originalHolderEmail, &ticket)
 
 	response := map[string]interface{}{
 		"message":          "Ticket transferred successfully",
@@ -348,12 +349,9 @@ func (h *TicketHandler) sendTransferEmailToNewHolder(ticket *models.Ticket, from
 `, fullTicket.HolderName, fromHolder, event.Title, event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"), event.Location, fullTicket.OrderItem.TicketClass.Name, fullTicket.TicketNumber),
 	}
 
-	if err := h.notificationService.GetEmailService().Send(emailData); err != nil {
-		fmt.Printf("❌ Failed to send transfer email to new holder %s for ticket %s: %v\n", fullTicket.HolderEmail, fullTicket.TicketNumber, err)
-		return
+	if err := outbox.QueueHTMLEmail(h.db, emailData.To, emailData.Subject, emailData.HTMLBody, "ticket_transfer_new_holder"); err != nil {
+		fmt.Printf("outbox.QueueHTMLEmail ticket_transfer_new_holder: %v\n", err)
 	}
-
-	fmt.Printf("✅ Transfer notification email sent to new holder %s for ticket %s\n", fullTicket.HolderEmail, fullTicket.TicketNumber)
 }
 
 // sendTransferConfirmationToOriginalHolder sends a confirmation email to the original holder
@@ -456,10 +454,7 @@ func (h *TicketHandler) sendTransferConfirmationToOriginalHolder(originalName, o
 `, originalName, fullTicket.HolderName, fullTicket.HolderEmail, event.Title, event.StartDate.Format("Monday, January 2, 2006 at 3:04 PM"), fullTicket.TicketNumber, fullTicket.HolderName, fullTicket.HolderEmail, time.Now().Format("Monday, January 2, 2006 at 3:04 PM")),
 	}
 
-	if err := h.notificationService.GetEmailService().Send(emailData); err != nil {
-		fmt.Printf("❌ Failed to send confirmation email to original holder %s: %v\n", originalEmail, err)
-		return
+	if err := outbox.QueueHTMLEmail(h.db, emailData.To, emailData.Subject, emailData.HTMLBody, "ticket_transfer_original_holder"); err != nil {
+		fmt.Printf("outbox.QueueHTMLEmail ticket_transfer_original_holder: %v\n", err)
 	}
-
-	fmt.Printf("✅ Transfer confirmation email sent to original holder %s\n", originalEmail)
 }
