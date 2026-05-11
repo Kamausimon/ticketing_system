@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Demo app (not needed in backend)
+demo-app/
+
+# Logs
+*.log
+server.log
+api-server.log
+
+# Test files
+*_test.go
+test-*.sh
+
+# Build artifacts
+bin/
+api-server
+
+# Uploads and storage (should use volumes)
+uploads/*
+storage/*
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Monitoring
+prometheus/
+grafana/
+
+# Scripts
+*.sh
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,641 @@
+package payments
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"runtime/debug"
+	"strconv"
+	apievents "ticketing_system/internal/api_events"
+	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/models"
+	"time"
+
+	"github.com/gorilla/mux"
+	"gorm.io/gorm/clause"
+)
+
+// FlexibleFloat handles both string and float64 from JSON
+type FlexibleFloat float64
+
+func (f *FlexibleFloat) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as float64 first
+	var floatVal float64
+	if err := json.Unmarshal(data, &floatVal); err == nil {
+		*f = FlexibleFloat(floatVal)
+		return nil
+	}
+
+	// If that fails, try as string
+	var strVal string
+	if err := json.Unmarshal(data, &strVal); err != nil {
+		return err
+	}
+
+	// Parse the string as float
+	floatVal, err := strconv.ParseFloat(strVal, 64)
+	if err != nil {
+		return err
+	}
+	*f = FlexibleFloat(floatVal)
+	return nil
+}
+
+// Intasend Webhook Event Structure
+type IntasendWebhookEvent struct {
+	ID           string        `json:"id"`
+	InvoiceID    string        `json:"invoice_id"`
+	State        string        `json:"state"` // PENDING, PROCESSING, COMPLETE, FAILED
+	Provider     string        `json:"provider"`
+	Charges      FlexibleFloat `json:"charges"`
+	NetAmount    FlexibleFloat `json:"net_amount"`
+	Currency     string        `json:"currency"`
+	Value        FlexibleFloat `json:"value"`
+	Account      string        `json:"account"`
+	APIRef       string        `json:"api_ref"`
+	Host         string        `json:"host"`
+	RetryCount   int           `json:"retry_count"`
+	CreatedAt    string        `json:"created_at"`
+	UpdatedAt    string        `json:"updated_at"`
+	FailedReason string        `json:"failed_reason,omitempty"`
+}
+
+// HandleIntasendWebhook processes incoming webhooks from Intasend with enhanced error handling
+func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			stackTrace := string(debug.Stack())
+			log.Printf("❌ PANIC in webhook handler: %v\nStack: %s", rec, stackTrace)
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+		}
+	}()
+
+	// Read the raw body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("❌ Failed to read webhook body: %v", err)
+		writeError(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	defer r.Body.Close()
+
+	// Verify webhook signature — required in all environments
+	signature := r.Header.Get("X-IntaSend-Signature")
+	if signature == "" {
+		log.Printf("❌ No signature provided — rejecting webhook from %s", r.RemoteAddr)
+		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Missing signature", r.RemoteAddr, r.UserAgent())
+		writeError(w, http.StatusUnauthorized, "Missing webhook signature")
+		return
+	}
+	if !h.verifyIntasendSignature(body, signature) {
+		log.Printf("⚠️ Invalid webhook signature from %s", r.RemoteAddr)
+		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Invalid signature", r.RemoteAddr, r.UserAgent())
+		writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
+		return
+	}
+	log.Printf("✅ Webhook signature verified")
+
+	// Parse webhook event
+	var event IntasendWebhookEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		log.Printf("❌ Failed to parse webhook JSON: %v", err)
+		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, fmt.Sprintf("Failed to parse JSON: %v", err), r.RemoteAddr, r.UserAgent())
+		writeError(w, http.StatusBadRequest, "Invalid webhook payload")
+		return
+	}
+
+	log.Printf("📨 Received webhook event: ID=%s, State=%s, APIRef=%s, InvoiceID=%s", event.ID, event.State, event.APIRef, event.InvoiceID)
+
+	// Log webhook FIRST to prevent duplicate processing (acts as a lock)
+	now := time.Now()
+	headersJSON, _ := json.Marshal(r.Header)
+	userAgent := r.UserAgent()
+	idempotencyKey := fmt.Sprintf("intasend:%s:%s", event.InvoiceID, event.State)
+	webhookLog := models.WebhookLog{
+		Provider:          models.WebhookIntasend,
+		EventID:           event.ID,
+		EventType:         "payment",
+		Status:            models.WebhookReceived,
+		Payload:           string(body),
+		Headers:           string(headersJSON),
+		Success:           false,
+		IPAddress:         r.RemoteAddr,
+		UserAgent:         &userAgent,
+		SignatureValid:    true,
+		ProcessedAt:       &now,
+		ExternalReference: &event.InvoiceID,
+		IdempotencyKey:    &idempotencyKey,
+	}
+
+	// Try to create webhook log - will fail on unique constraint if duplicate
+	if err := h.db.Create(&webhookLog).Error; err != nil {
+		if h.checkDuplicateIntasendWebhook(event.InvoiceID, event.State) {
+			log.Printf("⚠️ Duplicate webhook event detected: InvoiceID=%s, State=%s", event.InvoiceID, event.State)
+			writeJSON(w, http.StatusOK, WebhookEventResponse{
+				Received:  true,
+				Processed: false,
+				Message:   "Duplicate event ignored",
+			})
+			return
+		}
+		log.Printf("❌ Failed to log webhook: %v", err)
+		writeError(w, http.StatusInternalServerError, "Failed to process webhook")
+		return
+	}
+
+	// Process the webhook based on state
+	success, err := h.processIntasendWebhookSafe(&event)
+
+	// Update webhook log status
+	if success {
+		webhookLog.Status = models.WebhookProcessed
+		webhookLog.Success = true
+		log.Printf("✅ Webhook processed successfully: InvoiceID=%s, State=%s", event.InvoiceID, event.State)
+	} else {
+		webhookLog.Status = models.WebhookFailed
+		if err != nil {
+			errMsg := err.Error()
+			webhookLog.ErrorMessage = &errMsg
+			log.Printf("❌ Failed to process webhook (InvoiceID: %s, State: %s): %v", event.InvoiceID, event.State, err)
+		}
+	}
+	h.db.Save(&webhookLog)
+
+	writeJSON(w, http.StatusOK, WebhookEventResponse{
+		Received:  true,
+		Processed: success,
+		Message:   "Webhook processed",
+	})
+}
+
+// processIntasendWebhook processes the Intasend webhook event
+func (h *PaymentHandler) processIntasendWebhook(event *IntasendWebhookEvent) (bool, error) {
+	// Find the payment record by API reference
+	log.Printf("🔍 Looking for payment record with API ref: %s", event.APIRef)
+
+	var paymentRecord models.PaymentRecord
+	if err := h.db.Where("external_reference = ?", event.APIRef).First(&paymentRecord).Error; err != nil {
+		log.Printf("❌ Payment record not found for API ref %s: %v", event.APIRef, err)
+
+		// Debug: Try to find any payment records for this order
+		var count int64
+		h.db.Model(&models.PaymentRecord{}).Where("external_reference LIKE ?", "%"+event.APIRef+"%").Count(&count)
+		log.Printf("📊 Found %d payment records with similar API ref", count)
+
+		return false, fmt.Errorf("payment record not found for API ref %s", event.APIRef)
+	}
+
+	log.Printf("✅ Found payment record: ID=%d, OrderID=%v, Status=%s", paymentRecord.ID, paymentRecord.OrderID, paymentRecord.Status)
+
+	// Update payment record based on state
+	switch event.State {
+	case "COMPLETE":
+		return h.handleIntasendComplete(event, &paymentRecord)
+	case "FAILED":
+		return h.handleIntasendFailed(event, &paymentRecord)
+	case "PROCESSING":
+		return h.handleIntasendProcessing(event, &paymentRecord)
+	default:
+		return true, nil // Ignore other states for now
+	}
+}
+
+// handleIntasendComplete handles successful payment
+// ATOMIC TRANSACTION: Payment verification + ticket generation
+func (h *PaymentHandler) handleIntasendComplete(event *IntasendWebhookEvent, paymentRecord *models.PaymentRecord) (bool, error) {
+	tx := h.db.Begin()
+	if tx.Error != nil {
+		return false, fmt.Errorf("failed to start transaction: %w", tx.Error)
+	}
+
+	committed := false
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("❌ Panic in handleIntasendComplete, transaction rolled back: %v", r)
+		} else if !committed {
+			tx.Rollback()
+			log.Printf("⚠️ Transaction not committed, rolling back")
+		}
+	}()
+
+	// Lock the payment record inside the transaction — concurrent requests block here
+	// until the first one commits, then see RecordCompleted and exit early.
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(paymentRecord, paymentRecord.ID).Error; err != nil {
+		tx.Rollback()
+		return false, fmt.Errorf("failed to lock payment record: %w", err)
+	}
+
+	if paymentRecord.Status == models.RecordCompleted {
+		tx.Rollback()
+		committed = true
+		return true, nil
+	}
+
+	// Update payment record
+	now := time.Now()
+	paymentRecord.Status = models.RecordCompleted
+	paymentRecord.CompletedAt = &now
+	paymentRecord.ExternalTransactionID = &event.ID
+
+	// Calculate fees
+	charges := int64(float64(event.Charges) * 100) // Convert to cents
+	netAmount := int64(float64(event.NetAmount) * 100)
+	paymentRecord.GatewayFeeAmount = models.Money(charges)
+	paymentRecord.NetAmount = models.Money(netAmount)
+
+	if err := tx.Save(paymentRecord).Error; err != nil {
+		tx.Rollback()
+		return false, fmt.Errorf("failed to update payment record: %w", err)
+	}
+
+	// Create payment transaction record
+	transaction := models.PaymentTransaction{
+		Amount:                paymentRecord.Amount,
+		Currency:              paymentRecord.Currency,
+		Type:                  models.TransactionPayment,
+		Status:                models.TransactionCompleted,
+		OrderID:               paymentRecord.OrderID,
+		PaymentGatewayID:      paymentRecord.PaymentGatewayID,
+		ExternalTransactionID: &event.ID,
+		ExternalReference:     &event.APIRef,
+		ProcessedAt:           &now,
+		Description:           fmt.Sprintf("Payment via %s", event.Provider),
+	}
+	if err := tx.Create(&transaction).Error; err != nil {
+		tx.Rollback()
+		return false, fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	// CRITICAL: Update order status AND generate tickets atomically
+	if paymentRecord.OrderID != nil {
+		var order models.Order
+		if err := tx.Preload("OrderItems.TicketClass.Event").
+			First(&order, *paymentRecord.OrderID).Error; err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("failed to load order: %w", err)
+		}
+
+		// Check if already paid
+		if order.Status == models.OrderPaid || order.Status == models.OrderFulfilled {
+			log.Printf("ℹ️ Order %d already processed (Status: %s) - skipping duplicate webhook", order.ID, order.Status)
+			if err := tx.Commit().Error; err != nil {
+				return false, fmt.Errorf("failed to commit transaction: %w", err)
+			}
+			committed = true // Mark as committed to prevent rollback in defer
+			return true, nil
+		}
+
+		// Update order status
+		order.Status = models.OrderPaid
+		order.PaymentStatus = models.PaymentCompleted
+		order.IsPaymentReceived = true
+		order.CompletedAt = &now
+
+		if err := tx.Save(&order).Error; err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("failed to update order: %w", err)
+		}
+
+		// Generate tickets for each order item (within same transaction)
+		for _, item := range order.OrderItems {
+			// Check if tickets already exist
+			var existingCount int64
+			if err := tx.Model(&models.Ticket{}).
+				Where("order_item_id = ?", item.ID).
+				Count(&existingCount).Error; err != nil {
+				tx.Rollback()
+				return false, fmt.Errorf("failed to check existing tickets: %w", err)
+			}
+
+			if existingCount > 0 {
+				continue // Already generated
+			}
+
+			// Create tickets
+			for i := 0; i < item.Quantity; i++ {
+				ticket := models.Ticket{
+					OrderItemID:  item.ID,
+					TicketNumber: generateTicketNumber(item.TicketClass.EventID, order.ID, item.ID, i),
+					HolderName:   fmt.Sprintf("%s %s", order.FirstName, order.LastName),
+					HolderEmail:  order.Email,
+					QRCode:       generateQRCode(item.TicketClass.EventID, order.ID, i),
+					Status:       models.TicketActive,
+				}
+
+				if err := tx.Create(&ticket).Error; err != nil {
+					tx.Rollback()
+					return false, fmt.Errorf("failed to create ticket: %w", err)
+				}
+			}
+		}
+
+		// Mark order as fulfilled after tickets created
+		order.Status = models.OrderFulfilled
+		if err := tx.Save(&order).Error; err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("failed to mark order as fulfilled: %w", err)
+		}
+
+		// Save payment.completed to the outbox inside this transaction.
+		// This is atomic with the ticket creation above — if the commit fails,
+		// the outbox row is never written and no spurious ticket-worker run fires.
+		evt := apievents.PaymentCompletedEvent{
+			OrderID:   order.ID,
+			AccountID: order.AccountID,
+			EventID:   order.EventID,
+			Amount:    int64(order.TotalAmount),
+			Currency:  order.Currency,
+			Provider:  event.Provider,
+			Timestamp: now,
+		}
+		payload, err := json.Marshal(evt)
+		if err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("marshal payment.completed: %w", err)
+		}
+		if err := h.outboxRepo.Save(tx, models.OutboxEvent{
+			Topic:   kafkatopics.PaymentCompletedTopic,
+			Payload: string(payload),
+			Status:  "pending",
+		}); err != nil {
+			tx.Rollback()
+			return false, fmt.Errorf("save payment.completed outbox: %w", err)
+		}
+
+		log.Printf("✅ Payment verified and tickets generated for order %d", order.ID)
+	}
+
+	// Commit transaction - payment + tickets + outbox event succeed together
+	if err := tx.Commit().Error; err != nil {
+		return false, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	committed = true
+
+	if h.metrics != nil && paymentRecord.OrderID != nil {
+		duration := time.Since(paymentRecord.InitiatedAt)
+		h.metrics.TrackPaymentSuccess(event.Provider, "intasend", duration)
+	}
+
+	return true, nil
+}
+
+// Helper functions for ticket generation (duplicated for independence)
+func generateTicketNumber(eventID, orderID, itemID uint, index int) string {
+	timestamp := time.Now().Unix()
+	return fmt.Sprintf("TKT-%d-%d-%d-%d-%d", eventID, orderID, itemID, index, timestamp)
+}
+
+func generateQRCode(eventID, orderID uint, index int) string {
+	timestamp := time.Now().Unix()
+	return fmt.Sprintf("TICKET:EVENT%d:ORDER%d:IDX%d:TIME%d", eventID, orderID, index, timestamp)
+}
+
+// handleIntasendFailed handles failed payment
+func (h *PaymentHandler) handleIntasendFailed(event *IntasendWebhookEvent, paymentRecord *models.PaymentRecord) (bool, error) {
+	now := time.Now()
+	paymentRecord.Status = models.RecordFailed
+	paymentRecord.FailedAt = &now
+	paymentRecord.ExternalTransactionID = &event.ID
+
+	if event.FailedReason != "" {
+		paymentRecord.Notes = &event.FailedReason
+	}
+
+	if err := h.db.Save(paymentRecord).Error; err != nil {
+		return false, err
+	}
+
+	// Update order status
+	if paymentRecord.OrderID != nil {
+		var order models.Order
+		if err := h.db.First(&order, *paymentRecord.OrderID).Error; err == nil {
+			order.PaymentStatus = models.PaymentFailed
+			h.db.Save(&order)
+		}
+	}
+
+	return true, nil
+}
+
+// handleIntasendProcessing handles processing payment
+func (h *PaymentHandler) handleIntasendProcessing(event *IntasendWebhookEvent, paymentRecord *models.PaymentRecord) (bool, error) {
+	now := time.Now()
+	paymentRecord.ProcessedAt = &now
+	paymentRecord.ExternalTransactionID = &event.ID
+
+	if err := h.db.Save(paymentRecord).Error; err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// verifyIntasendSignature verifies the webhook signature from Intasend
+func (h *PaymentHandler) verifyIntasendSignature(payload []byte, signature string) bool {
+	if h.IntasendWebhookSecret == "" {
+		log.Printf("⚠️ Webhook secret not configured")
+		return false // No secret configured
+	}
+
+	// Compute HMAC SHA256
+	mac := hmac.New(sha256.New, []byte(h.IntasendWebhookSecret))
+	mac.Write(payload)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	// Debug logging
+	log.Printf("🔐 Signature verification:")
+	log.Printf("   Received signature: %s", signature)
+	log.Printf("   Expected signature: %s", expectedSignature)
+	log.Printf("   Secret length: %d", len(h.IntasendWebhookSecret))
+	log.Printf("   Payload length: %d", len(payload))
+
+	isValid := hmac.Equal([]byte(signature), []byte(expectedSignature))
+	if !isValid {
+		log.Printf("❌ Signature mismatch!")
+	} else {
+		log.Printf("✅ Signature valid!")
+	}
+
+	return isValid
+}
+
+// checkDuplicateIntasendWebhook checks for duplicate Intasend webhooks using invoice_id + state
+func (h *PaymentHandler) checkDuplicateIntasendWebhook(invoiceID, state string) bool {
+	var count int64
+	h.db.Model(&models.WebhookLog{}).
+		Where("provider = ? AND external_reference = ? AND payload LIKE ?",
+			models.WebhookIntasend, invoiceID, "%\"state\": \""+state+"\"%").
+		Count(&count)
+	return count > 0
+}
+
+// logWebhook logs the webhook event
+func (h *PaymentHandler) logWebhook(provider models.WebhookProvider, eventID, payload string, headers http.Header, success bool, errorMsg, ipAddress, userAgent string) {
+	now := time.Now()
+
+	headersJSON, _ := json.Marshal(headers)
+
+	webhookLog := models.WebhookLog{
+		Provider:       provider,
+		EventID:        eventID,
+		EventType:      "payment",
+		Status:         models.WebhookReceived,
+		Payload:        payload,
+		Headers:        string(headersJSON),
+		Success:        success,
+		IPAddress:      ipAddress,
+		UserAgent:      &userAgent,
+		SignatureValid: success,
+		ProcessedAt:    &now,
+	}
+
+	if success {
+		webhookLog.Status = models.WebhookProcessed
+	} else {
+		webhookLog.Status = models.WebhookFailed
+		webhookLog.ErrorMessage = &errorMsg
+	}
+
+	h.db.Create(&webhookLog)
+}
+
+// GetWebhookLogs returns webhook logs with filtering
+func (h *PaymentHandler) GetWebhookLogs(w http.ResponseWriter, r *http.Request) {
+	provider := r.URL.Query().Get("provider")
+	status := r.URL.Query().Get("status")
+	limitStr := r.URL.Query().Get("limit")
+
+	limit := 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
+			limit = l
+		}
+	}
+
+	query := h.db.Model(&models.WebhookLog{}).Order("created_at DESC").Limit(limit)
+
+	if provider != "" {
+		query = query.Where("provider = ?", provider)
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	var logs []models.WebhookLog
+	if err := query.Find(&logs).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to fetch webhook logs")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"logs":  logs,
+		"total": len(logs),
+	})
+}
+
+// RetryFailedWebhook retries a failed webhook
+func (h *PaymentHandler) RetryFailedWebhook(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	webhookID, err := strconv.ParseUint(vars["id"], 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid webhook ID")
+		return
+	}
+
+	var webhookLog models.WebhookLog
+	if err := h.db.First(&webhookLog, webhookID).Error; err != nil {
+		writeError(w, http.StatusNotFound, "Webhook log not found")
+		return
+	}
+
+	if !webhookLog.IsRetryable() {
+		writeError(w, http.StatusBadRequest, "Webhook is not retryable")
+		return
+	}
+
+	// Parse and reprocess the webhook
+	var event IntasendWebhookEvent
+	if err := json.Unmarshal([]byte(webhookLog.Payload), &event); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid webhook payload")
+		return
+	}
+
+	success, err := h.processIntasendWebhook(&event)
+
+	now := time.Now()
+	webhookLog.RetryCount++
+	webhookLog.LastRetryAt = &now
+
+	if success {
+		webhookLog.Status = models.WebhookProcessed
+		webhookLog.Success = true
+		webhookLog.ErrorMessage = nil
+	} else {
+		webhookLog.Status = models.WebhookFailed
+		errMsg := err.Error()
+		webhookLog.ErrorMessage = &errMsg
+	}
+
+	h.db.Save(&webhookLog)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     success,
+		"retry_count": webhookLog.RetryCount,
+		"message":     "Webhook retry completed",
+	})
+}
+
+// processIntasendWebhookSafe wraps webhook processing with panic recovery
+func (h *PaymentHandler) processIntasendWebhookSafe(event *IntasendWebhookEvent) (bool, error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("❌ Panic during webhook processing (Event: %s): %v\nStack: %s", event.ID, rec, string(debug.Stack()))
+		}
+	}()
+
+	return h.processIntasendWebhook(event)
+}
+
+
+// STRIPE WEBHOOK HANDLER - COMMENTED OUT FOR FUTURE USE
+/*
+func (h *PaymentHandler) HandleStripeWebhook(w http.ResponseWriter, r *http.Request) {
+	// Read body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+
+	// Verify signature
+	signature := r.Header.Get("Stripe-Signature")
+	event, err := webhook.ConstructEvent(body, signature, h.StripeWebhookSecret)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
+		return
+	}
+
+	// Process based on event type
+	switch event.Type {
+	case "payment_intent.succeeded":
+		// Handle successful payment
+	case "payment_intent.payment_failed":
+		// Handle failed payment
+	case "charge.refunded":
+		// Handle refund
+	}
+
+	writeJSON(w, http.StatusOK, WebhookEventResponse{
+		Received: true,
+		Processed: true,
+		Message: "Webhook processed",
+	})
+}
+*/
