@@ -164,9 +164,39 @@ func (h *InventoryHandler) getReservedQuantity(ticketClassID uint) int {
 	return reservedQty
 }
 
-func (h *InventoryHandler) convertToAvailabilityResponse(ticketClass *models.TicketClass) AvailabilityResponse {
-	reservedQty := h.getReservedQuantity(ticketClass.ID)
-	availableQty := h.calculateAvailableQuantity(h.db, ticketClass)
+// getReservedQuantities fetches active reservation sums for multiple ticket classes
+// in a single GROUP BY query instead of one query per class.
+func (h *InventoryHandler) getReservedQuantities(ticketClassIDs []uint) map[uint]int {
+	result := make(map[uint]int, len(ticketClassIDs))
+	if len(ticketClassIDs) == 0 {
+		return result
+	}
+	type row struct {
+		TicketID uint
+		Reserved int
+	}
+	var rows []row
+	h.db.Model(&models.ReservedTicket{}).
+		Select("ticket_id, COALESCE(SUM(quantity_reserved), 0) as reserved").
+		Where("ticket_id IN ? AND expires > ?", ticketClassIDs, time.Now()).
+		Group("ticket_id").
+		Scan(&rows)
+	for _, r := range rows {
+		result[r.TicketID] = r.Reserved
+	}
+	return result
+}
+
+func (h *InventoryHandler) convertToAvailabilityResponse(ticketClass *models.TicketClass, reservedQty int) AvailabilityResponse {
+	var availableQty int
+	if ticketClass.QuantityAvailable == nil {
+		availableQty = 999999
+	} else {
+		availableQty = *ticketClass.QuantityAvailable - ticketClass.QuantitySold - reservedQty
+		if availableQty < 0 {
+			availableQty = 0
+		}
+	}
 	isAvailable := h.isTicketClassSaleable(ticketClass) && availableQty > 0
 
 	return AvailabilityResponse{

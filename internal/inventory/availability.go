@@ -24,7 +24,7 @@ func (h *InventoryHandler) GetTicketAvailability(w http.ResponseWriter, r *http.
 		return
 	}
 
-	response := h.convertToAvailabilityResponse(&ticketClass)
+	response := h.convertToAvailabilityResponse(&ticketClass, h.getReservedQuantity(ticketClass.ID))
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -49,13 +49,19 @@ func (h *InventoryHandler) GetEventInventory(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	ids := make([]uint, len(ticketClasses))
+	for i, tc := range ticketClasses {
+		ids[i] = tc.ID
+	}
+	reservedByID := h.getReservedQuantities(ids)
+
 	var ticketClassResponses []AvailabilityResponse
 	totalSold := 0
 	totalReserved := 0
 	totalAvailable := 0
 
 	for _, tc := range ticketClasses {
-		response := h.convertToAvailabilityResponse(&tc)
+		response := h.convertToAvailabilityResponse(&tc, reservedByID[tc.ID])
 		ticketClassResponses = append(ticketClassResponses, response)
 		totalSold += response.QuantitySold
 		totalReserved += response.QuantityReserved
@@ -89,7 +95,7 @@ func (h *InventoryHandler) GetInventoryStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	response := h.convertToAvailabilityResponse(&ticketClass)
+	response := h.convertToAvailabilityResponse(&ticketClass, h.getReservedQuantity(ticketClass.ID))
 
 	// Add additional status information
 	status := map[string]interface{}{
@@ -128,9 +134,11 @@ func (h *InventoryHandler) BulkCheckAvailability(w http.ResponseWriter, r *http.
 		return
 	}
 
+	reservedByID := h.getReservedQuantities(req.TicketClassIDs)
+
 	var responses []AvailabilityResponse
 	for _, tc := range ticketClasses {
-		responses = append(responses, h.convertToAvailabilityResponse(&tc))
+		responses = append(responses, h.convertToAvailabilityResponse(&tc, reservedByID[tc.ID]))
 	}
 
 	writeJSON(w, http.StatusOK, BulkAvailabilityResponse{
