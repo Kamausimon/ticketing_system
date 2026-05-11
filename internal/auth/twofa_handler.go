@@ -129,16 +129,17 @@ func (h *TwoFactorHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 
 	// Create or update 2FA session (temporary until verified)
 	session := models.TwoFactorSession{
-		UserID:    userID,
-		Secret:    secret,
-		Verified:  false,
-		ExpiresAt: time.Now().Add(15 * time.Minute),
-		IPAddress: GetClientIP(r),
-		UserAgent: r.UserAgent(),
+		UserID:      userID,
+		Secret:      secret,
+		SessionType: "setup",
+		Verified:    false,
+		ExpiresAt:   time.Now().Add(15 * time.Minute),
+		IPAddress:   GetClientIP(r),
+		UserAgent:   r.UserAgent(),
 	}
 
-	// Delete any existing sessions
-	h.db.Where("user_id = ?", userID).Delete(&models.TwoFactorSession{})
+	// Delete any existing setup sessions (leave login sessions untouched)
+	h.db.Where("user_id = ? AND session_type = ?", userID, "setup").Delete(&models.TwoFactorSession{})
 
 	if err := h.db.Create(&session).Error; err != nil {
 		middleware.WriteJSONError(w, http.StatusInternalServerError, "failed to create setup session")
@@ -200,8 +201,8 @@ func (h *TwoFactorHandler) VerifySetup(w http.ResponseWriter, r *http.Request) {
 
 	// Get the setup session
 	var session models.TwoFactorSession
-	err := h.db.Where("user_id = ? AND verified = ? AND expires_at > ?",
-		userID, false, time.Now()).First(&session).Error
+	err := h.db.Where("user_id = ? AND session_type = ? AND verified = ? AND expires_at > ?",
+		userID, "setup", false, time.Now()).First(&session).Error
 	if err != nil {
 		middleware.WriteJSONError(w, http.StatusNotFound, "no active setup session found")
 		return
@@ -293,15 +294,34 @@ func (h *TwoFactorHandler) VerifySetup(w http.ResponseWriter, r *http.Request) {
 func (h *TwoFactorHandler) VerifyLogin(w http.ResponseWriter, r *http.Request, tokenSecret string) {
 	w.Header().Set("Content-Type", "application/json")
 
+	// Extract the raw Bearer token before GetUserIDFromTokenWithError consumes nothing —
+	// we need it to verify the single-use login session.
+	rawToken, tokenErr := middleware.GetBearerToken(r.Header)
+
 	userID, authErr := middleware.GetUserIDFromTokenWithError(r)
 	if authErr != nil || userID == 0 {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	if userID == 0 {
+
+	// Enforce single-use: look up the login session by the SHA256 of the temp token.
+	// Deleting it here means any subsequent attempt with the same token is rejected,
+	// even within the 15-minute JWT window.
+	if tokenErr != nil {
 		middleware.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
+	tokenHash := SHA256Hex(rawToken)
+	var loginSession models.TwoFactorSession
+	if err := h.db.Where(
+		"user_id = ? AND session_type = ? AND secret = ? AND verified = ? AND expires_at > ?",
+		userID, "login", tokenHash, false, time.Now(),
+	).First(&loginSession).Error; err != nil {
+		middleware.WriteJSONError(w, http.StatusUnauthorized, "token already used or expired")
+		return
+	}
+	// Consume the session immediately — no second use of this token is possible.
+	h.db.Delete(&loginSession)
 
 	// Parse request
 	var req VerifyLoginRequest

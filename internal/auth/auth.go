@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -37,6 +38,13 @@ func MakeRefreshToken() (string, error) {
 
 	str := hex.EncodeToString(key) // Use the actual random bytes, not the count
 	return str, nil
+}
+
+// SHA256Hex returns the hex-encoded SHA-256 hash of s.
+// Used to store temp token fingerprints without keeping the raw token.
+func SHA256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
 }
 
 func GetAPIKey(headers http.Header) (string, error) {

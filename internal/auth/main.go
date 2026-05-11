@@ -296,10 +296,24 @@ func (h *AuthHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Store a SHA256 fingerprint of the temp token so VerifyLogin can enforce
+		// single-use: once consumed the session is deleted, making the token dead
+		// even if an attacker captured it before the user completed 2FA.
+		h.db.Where("user_id = ? AND session_type = ?", user.ID, "login").Delete(&models.TwoFactorSession{})
+		h.db.Create(&models.TwoFactorSession{
+			UserID:      user.ID,
+			Secret:      SHA256Hex(tempToken),
+			SessionType: "login",
+			Verified:    false,
+			ExpiresAt:   time.Now().Add(15 * time.Minute),
+			IPAddress:   r.RemoteAddr,
+			UserAgent:   r.UserAgent(),
+		})
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"message":      "Two-factor authentication required",
 			"requires_2fa": true,
-			"temp_token":   tempToken, // Temporary token for 2FA verification
+			"temp_token":   tempToken,
 			"user_id":      user.ID,
 		})
 		return

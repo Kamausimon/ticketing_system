@@ -42,16 +42,17 @@ type TwoFactorAttempt struct {
 	AttemptedAt time.Time `gorm:"not null;index"`
 }
 
-// TwoFactorSession represents a temporary session during 2FA setup
+// TwoFactorSession represents a temporary session during 2FA setup or login
 type TwoFactorSession struct {
 	gorm.Model
-	UserID    uint      `gorm:"not null;index"`
-	User      User      `gorm:"foreignKey:UserID"`
-	Secret    string    `gorm:"type:varchar(255);not null"` // Temporary secret until verified
-	Verified  bool      `gorm:"default:false"`
-	ExpiresAt time.Time `gorm:"not null;index"`
-	IPAddress string    `gorm:"type:varchar(45)"`
-	UserAgent string    `gorm:"type:text"`
+	UserID      uint      `gorm:"not null;index"`
+	User        User      `gorm:"foreignKey:UserID"`
+	Secret      string    `gorm:"type:varchar(255);not null"` // TOTP secret (setup) or SHA256(temp_token) (login)
+	SessionType string    `gorm:"type:varchar(10);not null;default:'setup';index"` // "setup" or "login"
+	Verified    bool      `gorm:"default:false"`
+	ExpiresAt   time.Time `gorm:"not null;index"`
+	IPAddress   string    `gorm:"type:varchar(45)"`
+	UserAgent   string    `gorm:"type:text"`
 }
 
 // TableName overrides the table name
