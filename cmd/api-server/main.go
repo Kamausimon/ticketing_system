@@ -402,7 +402,7 @@ func main() {
 	router.HandleFunc("/admin/users/{id}/status", adminUserHandler.UpdateUserStatus).Methods(http.MethodPut)
 
 	// Support ticket routes - Public (can create without auth)
-	router.HandleFunc("/support/tickets", supportHandler.CreateTicket).Methods(http.MethodPost)
+	router.HandleFunc("/support/tickets", authLimiter.HandlerFunc(supportHandler.CreateTicket)).Methods(http.MethodPost)
 
 	// Support ticket routes - Authenticated users
 	router.HandleFunc("/support/tickets", supportHandler.ListTickets).Methods(http.MethodGet)
@@ -461,10 +461,10 @@ func main() {
 
 	// Account routes - Security
 	router.HandleFunc("/account/security", accountHandler.GetSecuritySettings).Methods(http.MethodGet)
-	router.HandleFunc("/account/security/password", accountHandler.ChangePassword).Methods(http.MethodPost)
+	router.HandleFunc("/account/security/password", authLimiter.HandlerFunc(accountHandler.ChangePassword)).Methods(http.MethodPost)
 	router.HandleFunc("/account/security/login-history", accountHandler.GetLoginHistory).Methods(http.MethodGet)
-	router.HandleFunc("/account/security/lock", accountHandler.LockAccount).Methods(http.MethodPost)
-	router.HandleFunc("/account/security/unlock", accountHandler.UnlockAccount).Methods(http.MethodPost)
+	router.HandleFunc("/account/security/lock", authLimiter.HandlerFunc(accountHandler.LockAccount)).Methods(http.MethodPost)
+	router.HandleFunc("/account/security/unlock", authLimiter.HandlerFunc(accountHandler.UnlockAccount)).Methods(http.MethodPost)
 
 	// Account routes - Activity
 	router.HandleFunc("/account/activity", accountHandler.GetAccountActivity).Methods(http.MethodGet)
@@ -519,13 +519,13 @@ func main() {
 	router.HandleFunc("/tickets/{id}/transfer-history", apiLimiter.HandlerFunc(ticketHandler.GetTransferHistory)).Methods(http.MethodGet)
 
 	// Ticket routes - Validation (Organizer only)
-	router.HandleFunc("/tickets/validate", ticketHandler.ValidateTicket).Methods(http.MethodPost)
-	router.HandleFunc("/tickets/validate/qr", ticketHandler.ValidateTicketByQR).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/validate", apiLimiter.HandlerFunc(ticketHandler.ValidateTicket)).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/validate/qr", apiLimiter.HandlerFunc(ticketHandler.ValidateTicketByQR)).Methods(http.MethodPost)
 
 	// Ticket routes - Check-in (Organizer only)
-	router.HandleFunc("/tickets/checkin", ticketHandler.CheckInTicket).Methods(http.MethodPost)
-	router.HandleFunc("/tickets/checkin/bulk", ticketHandler.BulkCheckIn).Methods(http.MethodPost)
-	router.HandleFunc("/tickets/checkin/undo", ticketHandler.UndoCheckIn).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/checkin", apiLimiter.HandlerFunc(ticketHandler.CheckInTicket)).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/checkin/bulk", apiLimiter.HandlerFunc(ticketHandler.BulkCheckIn)).Methods(http.MethodPost)
+	router.HandleFunc("/tickets/checkin/undo", apiLimiter.HandlerFunc(ticketHandler.UndoCheckIn)).Methods(http.MethodPost)
 	router.HandleFunc("/tickets/checkin/stats", ticketHandler.GetCheckInStats).Methods(http.MethodGet)
 
 	// Ticket routes - Bulk Operations
@@ -558,8 +558,8 @@ func main() {
 	router.HandleFunc("/promotions/{id}/extend", promotionHandler.ExtendPromotionDate).Methods(http.MethodPost)
 
 	// Promotion routes - Validation & Usage
-	router.HandleFunc("/promotions/validate", promotionHandler.ValidatePromotionCode).Methods(http.MethodPost)
-	router.HandleFunc("/promotions/eligibility", promotionHandler.CheckPromotionEligibility).Methods(http.MethodPost)
+	router.HandleFunc("/promotions/validate", authLimiter.HandlerFunc(promotionHandler.ValidatePromotionCode)).Methods(http.MethodPost)
+	router.HandleFunc("/promotions/eligibility", authLimiter.HandlerFunc(promotionHandler.CheckPromotionEligibility)).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/usage/revoke", promotionHandler.RevokePromotionUsage).Methods(http.MethodPost)
 	router.HandleFunc("/promotions/{id}/usage", promotionHandler.GetPromotionUsage).Methods(http.MethodGet)
 	router.HandleFunc("/promotions/{id}/usage", promotionHandler.RecordPromotionUsage).Methods(http.MethodPost)
@@ -644,9 +644,9 @@ func main() {
 	// Refund routes - Admin/Organizer
 	router.HandleFunc("/admin/refunds/pending", refundHandler.ListPendingRefunds).Methods(http.MethodGet)
 	router.HandleFunc("/admin/refunds/{id}", refundHandler.GetRefundDetails).Methods(http.MethodGet)
-	router.HandleFunc("/admin/refunds/{id}/approve", refundHandler.ApproveRefund).Methods(http.MethodPost)
-	router.HandleFunc("/admin/refunds/{id}/process", refundHandler.ProcessRefund).Methods(http.MethodPost)
-	router.HandleFunc("/admin/refunds/{id}/retry", refundHandler.RetryFailedRefund).Methods(http.MethodPost)
+	router.HandleFunc("/admin/refunds/{id}/approve", paymentLimiter.HandlerFunc(refundHandler.ApproveRefund)).Methods(http.MethodPost)
+	router.HandleFunc("/admin/refunds/{id}/process", paymentLimiter.HandlerFunc(refundHandler.ProcessRefund)).Methods(http.MethodPost)
+	router.HandleFunc("/admin/refunds/{id}/retry", paymentLimiter.HandlerFunc(refundHandler.RetryFailedRefund)).Methods(http.MethodPost)
 	router.HandleFunc("/admin/refunds/statistics", refundHandler.GetRefundStatistics).Methods(http.MethodGet)
 
 	// all done above this
@@ -668,8 +668,8 @@ func main() {
 	router.HandleFunc("/settlements/batch", settlementHandler.CreateSettlementBatch).Methods(http.MethodPost)
 	router.HandleFunc("/settlements/{id}", settlementHandler.GetSettlement).Methods(http.MethodGet)
 	router.HandleFunc("/settlements", settlementHandler.ListSettlements).Methods(http.MethodGet)
-	router.HandleFunc("/settlements/{id}/approve", settlementHandler.ApproveSettlement).Methods(http.MethodPost)
-	router.HandleFunc("/settlements/{id}/process", settlementHandler.ProcessSettlement).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/{id}/approve", paymentLimiter.HandlerFunc(settlementHandler.ApproveSettlement)).Methods(http.MethodPost)
+	router.HandleFunc("/settlements/{id}/process", paymentLimiter.HandlerFunc(settlementHandler.ProcessSettlement)).Methods(http.MethodPost)
 	router.HandleFunc("/settlements/{id}/cancel", settlementHandler.CancelSettlement).Methods(http.MethodPost)
 	router.HandleFunc("/settlements/{id}/withhold", settlementHandler.WithholdSettlement).Methods(http.MethodPost)
 
