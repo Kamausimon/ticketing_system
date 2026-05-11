@@ -97,16 +97,17 @@ func (sm *SessionManager) Set(key string, value interface{}, expiration time.Dur
 		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
-	// Try Redis first if available
 	if redisReady {
-		err := sm.redis.Set(sm.ctx, key, data, expiration).Err()
-		if err == nil {
-			return nil
+		// Redis is up — write there and nowhere else. If it fails, surface the
+		// error instead of silently writing to memory. A silent fallback would
+		// leave Redis missing the key and cause different instances to diverge.
+		if err := sm.redis.Set(sm.ctx, key, data, expiration).Err(); err != nil {
+			return fmt.Errorf("redis set failed: %w", err)
 		}
-		fmt.Printf("⚠️  Redis set failed: %v (using fallback)\n", err)
+		return nil
 	}
 
-	// Fallback to memory cache
+	// Redis is confirmed down by health check — in-memory is the intended fallback.
 	return sm.fallback.Set(key, value, expiration)
 }
 
@@ -175,10 +176,10 @@ func (sm *SessionManager) Expire(key string, expiration time.Duration) error {
 	sm.mu.RUnlock()
 
 	if redisReady {
-		err := sm.redis.Expire(sm.ctx, key, expiration).Err()
-		if err == nil {
-			return nil
+		if err := sm.redis.Expire(sm.ctx, key, expiration).Err(); err != nil {
+			return fmt.Errorf("redis expire failed: %w", err)
 		}
+		return nil
 	}
 
 	return sm.fallback.Expire(key, expiration)
