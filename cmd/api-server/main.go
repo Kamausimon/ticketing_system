@@ -273,6 +273,29 @@ func main() {
 	downloadLimiter := ratelimit.NewMiddleware(gov.Get("download"), ratelimit.KeyFuncs.ByIP)
 	inventoryLimiter := ratelimit.NewMiddleware(gov.Get("inventory"), ratelimit.KeyFuncs.ByIP)
 
+	// Per-user rate limiter for 2FA verification — keyed by user ID extracted from the
+	// Bearer token so IP rotation cannot bypass the limit. Each bcrypt recovery-code
+	// check takes ~100 ms; 10 codes × 3 req/min caps the CPU exposure per user.
+	twoFAKeyFunc := func(r *http.Request) string {
+		tokenStr, err := middleware.GetBearerToken(r.Header)
+		if err != nil {
+			return "ip:" + ratelimit.KeyFuncs.ByIP(r)
+		}
+		userID, err := middleware.ValidateJWT(tokenStr, os.Getenv("JWTSECRET"))
+		if err != nil {
+			return "ip:" + ratelimit.KeyFuncs.ByIP(r)
+		}
+		return fmt.Sprintf("2fa:user:%d", userID)
+	}
+	twoFAUserLimiter := ratelimit.NewMiddleware(
+		ratelimit.NewTokenBucket(ratelimit.Config{
+			RequestsPerSecond: float64(3) / 60, // 3 attempts per minute per user
+			BurstSize:         3,
+			CleanupInterval:   5 * time.Minute,
+		}),
+		twoFAKeyFunc,
+	)
+
 	// Create email verification middleware
 	emailVerificationMiddleware := middleware.RequireEmailVerification(DB)
 
@@ -359,7 +382,7 @@ func main() {
 	// Two-Factor Authentication routes - with rate limiting
 	router.HandleFunc("/2fa/setup", authLimiter.HandlerFunc(twoFactorHandler.Setup2FA)).Methods(http.MethodPost)
 	router.HandleFunc("/2fa/verify-setup", authLimiter.HandlerFunc(twoFactorHandler.VerifySetup)).Methods(http.MethodPost)
-	router.HandleFunc("/2fa/verify-login", loginLimiter.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("/2fa/verify-login", loginLimiter.HandlerFunc(twoFAUserLimiter.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		err := godotenv.Load(".env")
 		if err != nil {
 			middleware.WriteJSONError(w, http.StatusInternalServerError, "error loading env variables")
@@ -367,7 +390,7 @@ func main() {
 		}
 		tokenSecret := os.Getenv("JWTSECRET")
 		twoFactorHandler.VerifyLogin(w, r, tokenSecret)
-	})).Methods(http.MethodPost)
+	}))).Methods(http.MethodPost)
 	router.HandleFunc("/2fa/disable", authLimiter.HandlerFunc(twoFactorHandler.Disable2FA)).Methods(http.MethodPost)
 	router.HandleFunc("/2fa/status", twoFactorHandler.GetStatus).Methods(http.MethodGet)
 	router.HandleFunc("/2fa/recovery-codes", authLimiter.HandlerFunc(twoFactorHandler.RegenerateRecoveryCodes)).Methods(http.MethodPost)
