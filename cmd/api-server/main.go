@@ -588,7 +588,7 @@ func main() {
 	router.HandleFunc("/inventory/capacity/events/{id}/monitor", apiLimiter.HandlerFunc(inventoryHandler.MonitorCapacity)).Methods(http.MethodGet)
 
 	// Payment routes - Processing - with rate limiting
-	router.HandleFunc("/payments/initiate", paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment)).Methods(http.MethodPost)
+	router.Handle("/payments/initiate", emailVerificationMiddleware(paymentLimiter.HandlerFunc(paymentHandler.InitiatePayment))).Methods(http.MethodPost)
 	router.HandleFunc("/payments/history", apiLimiter.HandlerFunc(paymentHandler.GetPaymentHistory)).Methods(http.MethodGet)
 	router.HandleFunc("/payments/verify/{id}", paymentLimiter.HandlerFunc(paymentHandler.VerifyPayment)).Methods(http.MethodPost)
 	router.HandleFunc("/payments/orders/{id}/status", apiLimiter.HandlerFunc(paymentHandler.GetPaymentStatus)).Methods(http.MethodGet)

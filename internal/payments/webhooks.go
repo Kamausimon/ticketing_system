@@ -84,29 +84,21 @@ func (h *PaymentHandler) HandleIntasendWebhook(w http.ResponseWriter, r *http.Re
 	}
 	defer r.Body.Close()
 
-	// Verify webhook signature (skip in test mode if signature is not provided)
+	// Verify webhook signature — required in all environments
 	signature := r.Header.Get("X-IntaSend-Signature")
-	if signature != "" {
-		// Signature provided - verify it
-		if !h.verifyIntasendSignature(body, signature) {
-			// Log suspicious webhook
-			log.Printf("⚠️ Invalid webhook signature from %s", r.RemoteAddr)
-			h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Invalid signature", r.RemoteAddr, r.UserAgent())
-			writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
-			return
-		}
-		log.Printf("✅ Webhook signature verified")
-	} else {
-		// No signature provided
-		if h.IntasendTestMode {
-			log.Printf("⚠️ No signature provided - allowing in TEST MODE")
-		} else {
-			log.Printf("❌ No signature provided in PRODUCTION MODE - rejecting")
-			h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Missing signature in production", r.RemoteAddr, r.UserAgent())
-			writeError(w, http.StatusUnauthorized, "Missing webhook signature")
-			return
-		}
+	if signature == "" {
+		log.Printf("❌ No signature provided — rejecting webhook from %s", r.RemoteAddr)
+		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Missing signature", r.RemoteAddr, r.UserAgent())
+		writeError(w, http.StatusUnauthorized, "Missing webhook signature")
+		return
 	}
+	if !h.verifyIntasendSignature(body, signature) {
+		log.Printf("⚠️ Invalid webhook signature from %s", r.RemoteAddr)
+		h.logWebhook(models.WebhookIntasend, "unknown", string(body), r.Header, false, "Invalid signature", r.RemoteAddr, r.UserAgent())
+		writeError(w, http.StatusUnauthorized, "Invalid webhook signature")
+		return
+	}
+	log.Printf("✅ Webhook signature verified")
 
 	// Parse webhook event
 	var event IntasendWebhookEvent
