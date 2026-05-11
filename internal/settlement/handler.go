@@ -1,7 +1,12 @@
 package settlement
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,12 +18,13 @@ import (
 
 // SettlementHandler handles HTTP requests for settlements
 type SettlementHandler struct {
-	service *Service
+	service       *Service
+	webhookSecret string
 }
 
 // NewSettlementHandler creates a new settlement handler
-func NewSettlementHandler(service *Service) *SettlementHandler {
-	return &SettlementHandler{service: service}
+func NewSettlementHandler(service *Service, webhookSecret string) *SettlementHandler {
+	return &SettlementHandler{service: service, webhookSecret: webhookSecret}
 }
 
 // CalculateEventSettlement calculates settlement for a specific event
@@ -572,6 +578,35 @@ func (h *SettlementHandler) FailSettlementItem(w http.ResponseWriter, r *http.Re
 
 // HandleSettlementWebhook handles settlement completion webhooks from payment gateway
 func (h *SettlementHandler) HandleSettlementWebhook(w http.ResponseWriter, r *http.Request) {
+	if h.webhookSecret == "" {
+		log.Printf("❌ Settlement webhook secret not configured — rejecting request from %s", r.RemoteAddr)
+		http.Error(w, "Webhook not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	signature := r.Header.Get("X-Webhook-Signature")
+	if signature == "" {
+		log.Printf("⚠️ Settlement webhook missing signature from %s", r.RemoteAddr)
+		http.Error(w, "Missing webhook signature", http.StatusUnauthorized)
+		return
+	}
+
+	mac := hmac.New(sha256.New, []byte(h.webhookSecret))
+	mac.Write(body)
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(signature), []byte(expected)) {
+		log.Printf("⚠️ Settlement webhook invalid signature from %s", r.RemoteAddr)
+		http.Error(w, "Invalid webhook signature", http.StatusUnauthorized)
+		return
+	}
+
 	var webhook struct {
 		SettlementItemID      uint   `json:"settlement_item_id"`
 		ExternalTransactionID string `json:"external_transaction_id"`
@@ -579,7 +614,7 @@ func (h *SettlementHandler) HandleSettlementWebhook(w http.ResponseWriter, r *ht
 		FailureReason         string `json:"failure_reason,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&webhook); err != nil {
+	if err := json.Unmarshal(body, &webhook); err != nil {
 		http.Error(w, "Invalid webhook payload", http.StatusBadRequest)
 		return
 	}

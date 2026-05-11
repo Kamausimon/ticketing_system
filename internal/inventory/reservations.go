@@ -85,7 +85,7 @@ func (h *InventoryHandler) CreateReservation(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Calculate available quantity
-	availableQty := h.calculateAvailableQuantity(&ticketClass)
+	availableQty := h.calculateAvailableQuantity(tx, &ticketClass)
 	if availableQty < req.Quantity {
 		tx.Rollback()
 		writeError(w, http.StatusConflict, fmt.Sprintf("Only %d tickets available", availableQty))

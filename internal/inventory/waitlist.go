@@ -96,7 +96,7 @@ func (h *InventoryHandler) JoinWaitlist(w http.ResponseWriter, r *http.Request) 
 		}
 
 		// Check if really sold out
-		available := h.calculateAvailableQuantity(&ticketClass)
+		available := h.calculateAvailableQuantity(h.db, &ticketClass)
 		if available >= req.Quantity {
 			writeError(w, http.StatusBadRequest, "Tickets are still available - no need to join waitlist")
 			return

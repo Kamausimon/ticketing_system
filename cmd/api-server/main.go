@@ -243,7 +243,7 @@ func main() {
 	ticketClassHandler := ticketclasses.NewTicketClassHandler(DB)
 	refundHandler := refunds.NewRefundHandler(DB, metrics, notificationService, outboxRepo, paymentHandler.IntasendSecretKey, paymentHandler.IntasendWebhookSecret, paymentHandler.IntasendTestMode)
 	settlementService := settlement.NewService(DB)
-	settlementHandler := settlement.NewSettlementHandler(settlementService)
+	settlementHandler := settlement.NewSettlementHandler(settlementService, os.Getenv("SETTLEMENT_WEBHOOK_SECRET"))
 	supportHandler := support.NewSupportHandler(DB, metrics, notificationService)
 	attendeeHandler := attendees.NewAttendeeHandler(DB, metrics)
 	venueHandler := venues.NewVenueHandler(DB, metrics)

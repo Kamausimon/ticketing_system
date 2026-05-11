@@ -118,14 +118,13 @@ type CleanupResponse struct {
 }
 
 // Helper functions
-func (h *InventoryHandler) calculateAvailableQuantity(ticketClass *models.TicketClass) int {
+func (h *InventoryHandler) calculateAvailableQuantity(db *gorm.DB, ticketClass *models.TicketClass) int {
 	if ticketClass.QuantityAvailable == nil {
 		return 999999 // Unlimited
 	}
 
-	// Calculate reserved quantity
 	var reservedQty int
-	h.db.Model(&models.ReservedTicket{}).
+	db.Model(&models.ReservedTicket{}).
 		Where("ticket_id = ? AND expires > ?", ticketClass.ID, time.Now()).
 		Select("COALESCE(SUM(quantity_reserved), 0)").
 		Scan(&reservedQty)
@@ -167,7 +166,7 @@ func (h *InventoryHandler) getReservedQuantity(ticketClassID uint) int {
 
 func (h *InventoryHandler) convertToAvailabilityResponse(ticketClass *models.TicketClass) AvailabilityResponse {
 	reservedQty := h.getReservedQuantity(ticketClass.ID)
-	availableQty := h.calculateAvailableQuantity(ticketClass)
+	availableQty := h.calculateAvailableQuantity(h.db, ticketClass)
 	isAvailable := h.isTicketClassSaleable(ticketClass) && availableQty > 0
 
 	return AvailabilityResponse{

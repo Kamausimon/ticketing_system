@@ -238,7 +238,7 @@ func (h *InventoryHandler) MonitorCapacity(w http.ResponseWriter, r *http.Reques
 // Helper: Calculate capacity status for a ticket class
 func (h *InventoryHandler) calculateCapacityStatus(ticketClass *models.TicketClass) CapacityStatus {
 	reserved := h.getReservedQuantity(ticketClass.ID)
-	available := h.calculateAvailableQuantity(ticketClass)
+	available := h.calculateAvailableQuantity(h.db, ticketClass)
 
 	status := CapacityStatus{
 		TicketClassID:   &ticketClass.ID,
