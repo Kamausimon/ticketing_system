@@ -1,0 +1,175 @@
+groups:
+  # Business Metrics Recording Rules
+  - name: ticketing_business_rules
+    interval: 30s
+    rules:
+      # Revenue metrics
+      - record: ticketing:revenue:rate1h
+        expr: sum(rate(ticketing_revenue_total[1h])) * 3600
+
+      - record: ticketing:revenue:rate5m
+        expr: sum(rate(ticketing_revenue_total[5m])) * 60
+
+      - record: ticketing:revenue_by_organizer:total
+        expr: sum by (organizer_id, currency) (ticketing_revenue_total)
+
+      - record: ticketing:revenue_by_event:total
+        expr: sum by (event_id, currency) (ticketing_revenue_total)
+
+      # Ticket sales metrics
+      - record: ticketing:tickets_sold:rate1h
+        expr: sum(rate(ticketing_tickets_sold_total[1h])) * 3600
+
+      - record: ticketing:tickets_sold:rate5m
+        expr: sum(rate(ticketing_tickets_sold_total[5m])) * 60
+
+      - record: ticketing:tickets_sold_by_event:total
+        expr: sum by (event_id, ticket_class) (ticketing_tickets_sold_total)
+
+      # Order metrics
+      - record: ticketing:orders_completed:rate1h
+        expr: sum(rate(ticketing_orders_completed_total[1h])) * 3600
+
+      - record: ticketing:order_completion_rate:ratio
+        expr: |
+          sum(rate(ticketing_orders_completed_total[5m]))
+          /
+          (sum(rate(ticketing_orders_completed_total[5m])) + sum(rate(ticketing_orders_failed_total[5m])))
+
+      - record: ticketing:average_order_value:usd
+        expr: |
+          sum(rate(ticketing_order_value_sum{currency="USD"}[5m]))
+          /
+          sum(rate(ticketing_order_value_count{currency="USD"}[5m]))
+
+      # Conversion metrics
+      - record: ticketing:conversion_rate:ratio
+        expr: |
+          sum(increase(ticketing_orders_completed_total[1h]))
+          /
+          sum(increase(ticketing_http_requests_total{endpoint=~"/events.*"}[1h]))
+
+  # Performance Recording Rules
+  - name: ticketing_performance_rules
+    interval: 30s
+    rules:
+      # HTTP request rates
+      - record: ticketing:http_requests:rate5m
+        expr: sum(rate(ticketing_http_requests_total[5m]))
+
+      - record: ticketing:http_requests_by_endpoint:rate5m
+        expr: sum by (endpoint, method) (rate(ticketing_http_requests_total[5m]))
+
+      # Error rates
+      - record: ticketing:http_error_rate:ratio
+        expr: |
+          sum(rate(ticketing_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(ticketing_http_requests_total[5m]))
+
+      - record: ticketing:http_4xx_rate:ratio
+        expr: |
+          sum(rate(ticketing_http_requests_total{status=~"4.."}[5m]))
+          /
+          sum(rate(ticketing_http_requests_total[5m]))
+
+      # Latency percentiles
+      - record: ticketing:http_request_duration:p50
+        expr: histogram_quantile(0.50, sum by (le) (rate(ticketing_http_request_duration_seconds_bucket[5m])))
+
+      - record: ticketing:http_request_duration:p95
+        expr: histogram_quantile(0.95, sum by (le) (rate(ticketing_http_request_duration_seconds_bucket[5m])))
+
+      - record: ticketing:http_request_duration:p99
+        expr: histogram_quantile(0.99, sum by (le) (rate(ticketing_http_request_duration_seconds_bucket[5m])))
+
+      # Database query performance
+      - record: ticketing:db_query_duration:p95
+        expr: histogram_quantile(0.95, sum by (operation, le) (rate(ticketing_db_query_duration_seconds_bucket[5m])))
+
+      - record: ticketing:db_error_rate:ratio
+        expr: |
+          sum(rate(ticketing_db_errors_total[5m]))
+          /
+          sum(rate(ticketing_db_query_duration_seconds_count[5m]))
+
+  # Payment Recording Rules
+  - name: ticketing_payment_rules
+    interval: 30s
+    rules:
+      # Payment success rate
+      - record: ticketing:payment_success_rate:ratio
+        expr: |
+          sum(rate(ticketing_payment_success_total[5m]))
+          /
+          sum(rate(ticketing_payment_attempts_total[5m]))
+
+      # Payment failure rate by gateway
+      - record: ticketing:payment_failure_rate_by_gateway:ratio
+        expr: |
+          sum by (gateway) (rate(ticketing_payment_failures_total[5m]))
+          /
+          sum by (gateway) (rate(ticketing_payment_attempts_total[5m]))
+
+      # Average payment duration
+      - record: ticketing:payment_duration:avg
+        expr: |
+          sum(rate(ticketing_payment_duration_seconds_sum[5m]))
+          /
+          sum(rate(ticketing_payment_duration_seconds_count[5m]))
+
+      # Payment duration P95 by gateway
+      - record: ticketing:payment_duration_by_gateway:p95
+        expr: histogram_quantile(0.95, sum by (gateway, le) (rate(ticketing_payment_duration_seconds_bucket[5m])))
+
+  # Inventory Recording Rules
+  - name: ticketing_inventory_rules
+    interval: 30s
+    rules:
+      # Total available inventory
+      - record: ticketing:inventory_available:total
+        expr: sum(ticketing_inventory_available)
+
+      # Low inventory events (less than 50 tickets)
+      - record: ticketing:inventory_low_count:total
+        expr: count(ticketing_inventory_available < 50)
+
+      # Inventory utilization rate
+      - record: ticketing:inventory_utilization:ratio
+        expr: |
+          sum(ticketing_inventory_reserved)
+          /
+          (sum(ticketing_inventory_available) + sum(ticketing_inventory_reserved))
+
+  # Cache Recording Rules
+  - name: ticketing_cache_rules
+    interval: 30s
+    rules:
+      # Cache hit rate
+      - record: ticketing:cache_hit_rate:ratio
+        expr: |
+          sum(rate(ticketing_cache_hits_total[5m]))
+          /
+          (sum(rate(ticketing_cache_hits_total[5m])) + sum(rate(ticketing_cache_misses_total[5m])))
+
+      # Cache hit rate by cache name
+      - record: ticketing:cache_hit_rate_by_name:ratio
+        expr: |
+          sum by (cache_name) (rate(ticketing_cache_hits_total[5m]))
+          /
+          (sum by (cache_name) (rate(ticketing_cache_hits_total[5m])) + sum by (cache_name) (rate(ticketing_cache_misses_total[5m])))
+
+  # System Recording Rules
+  - name: ticketing_system_rules
+    interval: 30s
+    rules:
+      # Database connection pool utilization
+      - record: ticketing:db_connections_utilization:ratio
+        expr: |
+          ticketing_db_connections{state="in_use"}
+          /
+          ticketing_db_connections{state="max"}
+
+      # Memory usage in MB
+      - record: ticketing:memory_usage:megabytes
+        expr: ticketing_memory_usage_bytes / 1024 / 1024

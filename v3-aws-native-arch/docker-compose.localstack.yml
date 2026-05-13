@@ -1,0 +1,46 @@
+version: "3.9"
+
+# Local development environment using LocalStack to emulate AWS services.
+# This lets you run the full v3 stack without an AWS account.
+#
+# Usage:
+#   docker compose -f docker-compose.localstack.yml up -d
+#   # Then run the init script to create all SNS topics and SQS queues:
+#   ./scripts/localstack-init.sh
+
+services:
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sns,sqs,s3
+      - DEFAULT_REGION=us-east-1
+      - AWS_DEFAULT_REGION=us-east-1
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:-}
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ticketing_system
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  localstack_data:
+  postgres_data:
+  redis_data:
