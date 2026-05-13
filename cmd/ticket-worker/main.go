@@ -5,68 +5,61 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	apievents "ticketing_system/internal/api_events"
+	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 
-	gokafka "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
 )
 
 func main() {
+	cfg := config.LoadOrPanic()
 	db := database.Init()
-
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	consumer := kafka.NewConsumer(brokers, kafkatopics.PaymentCompletedTopic, "ticket-worker")
-	defer consumer.Close()
-
-	producer := kafka.NewProducer(brokers)
-	defer producer.Close()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("ticket-worker started, listening on", kafkatopics.PaymentCompletedTopic)
+	snsClient, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.TicketWorkerQueue)
+	publisher := messaging.NewSNSPublisher(snsClient, cfg.Messaging.TopicARNs)
+
+	log.Println("ticket-worker started, listening on", cfg.Messaging.TicketWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("ticket-worker: read error: %v", err)
+			log.Printf("ticket-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
-		if err := handlePaymentConfirmed(ctx, db, producer, msg); err != nil {
-			log.Printf("ticket-worker: failed to handle event %s: %v", msg.Key, err)
+		if err := handlePaymentConfirmed(ctx, db, publisher, msg); err != nil {
+			log.Printf("ticket-worker: failed to handle event %s: %v", msg.MessageID, err)
 			continue
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("ticket-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("ticket-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Producer, msg gokafka.Message) error {
+func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, publisher *messaging.SNSPublisher, msg *messaging.Message) error {
 	var evt apievents.PaymentCompletedEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Load order with all relations needed for ticket generation.
 	var order models.Order
 	if err := db.Preload("OrderItems.TicketClass").First(&order, evt.OrderID).Error; err != nil {
 		return fmt.Errorf("order %d not found: %w", evt.OrderID, err)
@@ -80,7 +73,6 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 	}()
 
 	for _, item := range order.OrderItems {
-		// Idempotency check — webhook may have already created tickets.
 		var count int64
 		tx.Model(&models.Ticket{}).Where("order_item_id = ?", item.ID).Count(&count)
 		if count > 0 {
@@ -118,7 +110,6 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 
 	orderIDStr := fmt.Sprintf("%d", evt.OrderID)
 
-	// Publish order.confirmed so the notification-worker sends the order confirmation email.
 	confirmed := apievents.OrderConfirmedEvent{
 		OrderID:   orderIDStr,
 		AccountID: fmt.Sprintf("%d", evt.AccountID),
@@ -129,11 +120,10 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 	if err != nil {
 		return fmt.Errorf("marshal order.confirmed: %w", err)
 	}
-	if err := producer.Publish(ctx, kafkatopics.OrderConfirmedTopic, orderIDStr, confirmedPayload); err != nil {
+	if err := publisher.Publish(ctx, messaging.OrderConfirmedTopic, orderIDStr, confirmedPayload); err != nil {
 		return fmt.Errorf("publish order.confirmed: %w", err)
 	}
 
-	// Publish tickets.generated so the ticket-email-worker sends PDF ticket emails.
 	generated := apievents.TicketsGeneratedEvent{
 		OrderID:   evt.OrderID,
 		AccountID: evt.AccountID,
@@ -144,7 +134,7 @@ func handlePaymentConfirmed(ctx context.Context, db *gorm.DB, producer *kafka.Pr
 	if err != nil {
 		return fmt.Errorf("marshal tickets.generated: %w", err)
 	}
-	if err := producer.Publish(ctx, kafkatopics.TicketsGeneratedTopic, orderIDStr, generatedPayload); err != nil {
+	if err := publisher.Publish(ctx, messaging.TicketsGeneratedTopic, orderIDStr, generatedPayload); err != nil {
 		return fmt.Errorf("publish tickets.generated: %w", err)
 	}
 

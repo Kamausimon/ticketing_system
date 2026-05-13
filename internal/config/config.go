@@ -10,13 +10,14 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	Database DatabaseConfig
-	Server   ServerConfig
-	Email    EmailConfig
-	App      AppConfig
-	Security SecurityConfig
-	Redis    RedisConfig
-	S3       S3Config
+	Database  DatabaseConfig
+	Server    ServerConfig
+	Email     EmailConfig
+	App       AppConfig
+	Security  SecurityConfig
+	Redis     RedisConfig
+	S3        S3Config
+	Messaging MessagingConfig
 }
 
 // DatabaseConfig holds database configuration
@@ -85,6 +86,32 @@ type S3Config struct {
 	Enabled   bool   // Enable/disable S3
 }
 
+// MessagingConfig holds SNS topic ARNs and SQS queue URLs for the AWS-native
+// messaging layer that replaces self-managed Kafka.
+type MessagingConfig struct {
+	// TopicARNs maps each topic name constant to its SNS ARN.
+	// e.g. "order.created" → "arn:aws:sns:us-east-1:123456789012:order-created"
+	TopicARNs map[string]string
+
+	// SQS queue URLs — one per worker consumer group.
+	PaymentWorkerQueue           string
+	TicketWorkerQueue            string
+	TicketEmailWorkerQueue       string
+	EmailWorkerQueue             string
+	NotificationWorkerQueue      string
+	EventCancellationWorkerQueue string
+	RefundProcessorWorkerQueue   string
+	WaitlistWorkerQueue          string
+
+	// Analytics worker subscribes to six separate queues (one per topic).
+	AnalyticsOrderCreatedQueue     string
+	AnalyticsOrderConfirmedQueue   string
+	AnalyticsPaymentCompletedQueue string
+	AnalyticsOrderCancelledQueue   string
+	AnalyticsEventCancelledQueue   string
+	AnalyticsTicketsGeneratedQueue string
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	config := &Config{
@@ -139,6 +166,37 @@ func Load() (*Config, error) {
 			PublicURL: getEnv("S3_PUBLIC_URL", "http://localhost:8080/uploads"),
 			LocalPath: getEnv("LOCAL_STORAGE_PATH", "./uploads"),
 			Enabled:   getEnvAsBool("S3_ENABLED", false),
+		},
+		Messaging: MessagingConfig{
+			TopicARNs: map[string]string{
+				"order.created":               getEnv("SNS_ARN_ORDER_CREATED", ""),
+				"order.payment_confirmed":      getEnv("SNS_ARN_ORDER_PAYMENT_CONFIRMED", ""),
+				"order.confirmed":             getEnv("SNS_ARN_ORDER_CONFIRMED", ""),
+				"order.cancelled":             getEnv("SNS_ARN_ORDER_CANCELLED", ""),
+				"order.completed":             getEnv("SNS_ARN_ORDER_COMPLETED", ""),
+				"reservation.expired":         getEnv("SNS_ARN_RESERVATION_EXPIRED", ""),
+				"inventory.released":          getEnv("SNS_ARN_INVENTORY_RELEASED", ""),
+				"event.cancelled":             getEnv("SNS_ARN_EVENT_CANCELLED", ""),
+				"payment.completed":           getEnv("SNS_ARN_PAYMENT_COMPLETED", ""),
+				"tickets.generated":           getEnv("SNS_ARN_TICKETS_GENERATED", ""),
+				"notification.email.requested": getEnv("SNS_ARN_NOTIFICATION_EMAIL", ""),
+				"refund.approved":             getEnv("SNS_ARN_REFUND_APPROVED", ""),
+				"refund.completed":            getEnv("SNS_ARN_REFUND_COMPLETED", ""),
+			},
+			PaymentWorkerQueue:             getEnv("SQS_URL_PAYMENT_WORKER", ""),
+			TicketWorkerQueue:              getEnv("SQS_URL_TICKET_WORKER", ""),
+			TicketEmailWorkerQueue:         getEnv("SQS_URL_TICKET_EMAIL_WORKER", ""),
+			EmailWorkerQueue:               getEnv("SQS_URL_EMAIL_WORKER", ""),
+			NotificationWorkerQueue:        getEnv("SQS_URL_NOTIFICATION_WORKER", ""),
+			EventCancellationWorkerQueue:   getEnv("SQS_URL_EVENT_CANCELLATION_WORKER", ""),
+			RefundProcessorWorkerQueue:     getEnv("SQS_URL_REFUND_PROCESSOR_WORKER", ""),
+			WaitlistWorkerQueue:            getEnv("SQS_URL_WAITLIST_WORKER", ""),
+			AnalyticsOrderCreatedQueue:     getEnv("SQS_URL_ANALYTICS_ORDER_CREATED", ""),
+			AnalyticsOrderConfirmedQueue:   getEnv("SQS_URL_ANALYTICS_ORDER_CONFIRMED", ""),
+			AnalyticsPaymentCompletedQueue: getEnv("SQS_URL_ANALYTICS_PAYMENT_COMPLETED", ""),
+			AnalyticsOrderCancelledQueue:   getEnv("SQS_URL_ANALYTICS_ORDER_CANCELLED", ""),
+			AnalyticsEventCancelledQueue:   getEnv("SQS_URL_ANALYTICS_EVENT_CANCELLED", ""),
+			AnalyticsTicketsGeneratedQueue: getEnv("SQS_URL_ANALYTICS_TICKETS_GENERATED", ""),
 		},
 	}
 	err := godotenv.Load(".env")

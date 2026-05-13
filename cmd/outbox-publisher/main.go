@@ -3,38 +3,30 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+
+	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/outbox"
 )
 
 func main() {
+	cfg := config.LoadOrPanic()
 	db := database.Init()
 
-	// Migrate the outbox table if it doesn't exist yet.
 	if err := db.AutoMigrate(&models.OutboxEvent{}); err != nil {
 		log.Fatalf("outbox: failed to migrate outbox table: %v", err)
 	}
 
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	producer := kafka.NewProducer(brokers)
-	defer producer.Close()
-
-	repo := outbox.NewRepository(db)
-	publisher := outbox.NewPublisher(repo, producer)
-
-	// Run until SIGINT or SIGTERM.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	publisher.Run(ctx)
+	snsClient, _ := messaging.NewAWSClients(ctx)
+	publisher := messaging.NewSNSPublisher(snsClient, cfg.Messaging.TopicARNs)
+
+	repo := outbox.NewRepository(db)
+	outbox.NewPublisher(repo, publisher).Run(ctx)
 }

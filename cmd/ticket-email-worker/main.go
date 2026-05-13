@@ -8,70 +8,63 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	apievents "ticketing_system/internal/api_events"
 	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
 	"ticketing_system/pkg/pdf"
 	"ticketing_system/pkg/qrcode"
 
-	gokafka "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
 )
 
 func main() {
-	db := database.Init()
 	cfg := config.LoadOrPanic()
-
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	consumer := kafka.NewConsumer(brokers, kafkatopics.TicketsGeneratedTopic, "ticket-email-worker")
-	defer consumer.Close()
-
-	notifService := notifications.NewNotificationService(cfg)
+	db := database.Init()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("ticket-email-worker started, listening on", kafkatopics.TicketsGeneratedTopic)
+	_, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.TicketEmailWorkerQueue)
+	notifService := notifications.NewNotificationService(cfg)
+
+	log.Println("ticket-email-worker started, listening on", cfg.Messaging.TicketEmailWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("ticket-email-worker: read error: %v", err)
+			log.Printf("ticket-email-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
 		if err := handleTicketsGenerated(db, notifService, msg); err != nil {
-			log.Printf("ticket-email-worker: failed for %s: %v", msg.Key, err)
-			// Do not commit — Kafka redelivers so we can retry the whole order.
+			log.Printf("ticket-email-worker: failed for %s: %v", msg.MessageID, err)
+			// Do not delete — SQS redelivers so we can retry the whole order.
 			continue
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("ticket-email-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("ticket-email-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handleTicketsGenerated(db *gorm.DB, notifService *notifications.NotificationService, msg gokafka.Message) error {
+func handleTicketsGenerated(db *gorm.DB, notifService *notifications.NotificationService, msg *messaging.Message) error {
 	var evt apievents.TicketsGeneratedEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Load all tickets for this order with the relations needed for PDF generation.
 	var tickets []models.Ticket
 	if err := db.
 		Preload("OrderItem.TicketClass.Event").
@@ -93,8 +86,6 @@ func handleTicketsGenerated(db *gorm.DB, notifService *notifications.Notificatio
 	for i := range tickets {
 		t := &tickets[i]
 		if err := processTicket(db, notifService, t, pdfGen, qrGen); err != nil {
-			// Log per-ticket failures but continue — one bad PDF shouldn't
-			// block other attendees on the same order from getting their emails.
 			log.Printf("ticket-email-worker: failed to process ticket %s: %v", t.TicketNumber, err)
 		}
 	}
@@ -107,7 +98,6 @@ func processTicket(db *gorm.DB, notifService *notifications.NotificationService,
 	event := &t.OrderItem.TicketClass.Event
 	order := &t.OrderItem.Order
 
-	// Generate QR code bytes.
 	qrContent := fmt.Sprintf("TICKET:%s|EVENT:%d|ATTENDEE:%s", t.TicketNumber, event.ID, t.HolderName)
 	qrBytes, err := qrGen.GenerateBytes(qrContent)
 	if err != nil {
@@ -146,7 +136,6 @@ func processTicket(db *gorm.DB, notifService *notifications.NotificationService,
 		return fmt.Errorf("read PDF: %w", err)
 	}
 
-	// Persist the PDF path so the ticket record knows where its PDF lives.
 	db.Model(t).Update("pdf_path", pdfPath)
 
 	emailData := notifications.EmailData{

@@ -1,5 +1,7 @@
-package kafka
+package messaging
 
+// Topic name constants — identical to the former kafka/topics.go so call sites
+// only need to change the import alias, not the constant references.
 const (
 	OrderCreatedTopic          = "order.created"
 	OrderPaymentConfirmedTopic = "order.payment_confirmed"
@@ -17,6 +19,6 @@ const (
 
 	NotificationEmailTopic = "notification.email.requested"
 
-	RefundApprovedTopic   = "refund.approved"
-	RefundCompletedTopic  = "refund.completed"
+	RefundApprovedTopic  = "refund.approved"
+	RefundCompletedTopic = "refund.completed"
 )

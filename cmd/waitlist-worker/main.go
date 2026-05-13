@@ -7,65 +7,61 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	apievents "ticketing_system/internal/api_events"
+	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/outbox"
 
-	gokafka "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
 )
 
 func main() {
+	cfg := config.LoadOrPanic()
 	db := database.Init()
-
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	consumer := kafka.NewConsumer(brokers, kafkatopics.InventoryReleasedTopic, "waitlist-worker")
-	defer consumer.Close()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("waitlist-worker started, listening on", kafkatopics.InventoryReleasedTopic)
+	_, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.WaitlistWorkerQueue)
+
+	log.Println("waitlist-worker started, listening on", cfg.Messaging.WaitlistWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("waitlist-worker: read error: %v", err)
+			log.Printf("waitlist-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
 		if err := handleInventoryReleased(db, msg); err != nil {
-			log.Printf("waitlist-worker: failed for %s: %v", msg.Key, err)
-			// Do not commit — Kafka redelivers so we don't miss a notification.
+			log.Printf("waitlist-worker: failed for %s: %v", msg.MessageID, err)
+			// Do not delete — SQS redelivers so we don't miss a notification.
 			continue
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("waitlist-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("waitlist-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handleInventoryReleased(db *gorm.DB, msg gokafka.Message) error {
+func handleInventoryReleased(db *gorm.DB, msg *messaging.Message) error {
 	var evt apievents.InventoryReleasedEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Load event and ticket class details needed for the notification email.
 	var event models.Event
 	if err := db.Preload("Venue").First(&event, evt.EventID).Error; err != nil {
 		return fmt.Errorf("load event %d: %w", evt.EventID, err)
@@ -90,16 +86,11 @@ func handleInventoryReleased(db *gorm.DB, msg gokafka.Message) error {
 	}
 	purchaseURL := fmt.Sprintf("%s/events/%d", baseURL, event.ID)
 
-	// Find waiting entries whose requested quantity fits within what was released.
-	// Priority DESC → FIFO within same priority, which is the fair queue order.
 	var entries []models.WaitlistEntry
 	query := db.Where(
 		"event_id = ? AND status = 'waiting' AND quantity <= ?",
 		evt.EventID, evt.QuantityReleased,
 	).Order("priority DESC, created_at ASC")
-
-	// If the release is for a specific ticket class, match that class OR
-	// entries that didn't specify a class (they'll take whatever is available).
 	query = query.Where("ticket_class_id = ? OR ticket_class_id IS NULL", evt.TicketClassID)
 
 	if err := query.Find(&entries).Error; err != nil {
@@ -117,12 +108,9 @@ func handleInventoryReleased(db *gorm.DB, msg gokafka.Message) error {
 
 	for _, entry := range entries {
 		if entry.Quantity > remaining {
-			// Not enough inventory left for this entry — skip (they stay in queue).
 			continue
 		}
 
-		// Mark as notified inside a small transaction so the status update and
-		// the outbox email write are atomic.
 		tx := db.Begin()
 		entry.Status = "notified"
 		entry.NotifiedAt = &now

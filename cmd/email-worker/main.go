@@ -5,66 +5,57 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	apievents "ticketing_system/internal/api_events"
 	"ticketing_system/internal/config"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/notifications"
-
-	gokafka "github.com/segmentio/kafka-go"
 )
 
 func main() {
 	cfg := config.LoadOrPanic()
 
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	consumer := kafka.NewConsumer(brokers, kafkatopics.NotificationEmailTopic, "email-worker")
-	defer consumer.Close()
-
-	notifService := notifications.NewNotificationService(cfg)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("email-worker started, listening on", kafkatopics.NotificationEmailTopic)
+	_, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.EmailWorkerQueue)
+	notifService := notifications.NewNotificationService(cfg)
+
+	log.Println("email-worker started, listening on", cfg.Messaging.EmailWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("email-worker: read error: %v", err)
+			log.Printf("email-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
 		if err := handleEmail(notifService, msg); err != nil {
-			log.Printf("email-worker: failed for %s: %v", msg.Key, err)
-			// Do not commit — Kafka redelivers so the email will be retried.
+			log.Printf("email-worker: failed for %s: %v", msg.MessageID, err)
+			// Do not delete — SQS redelivers after visibility timeout so the email is retried.
 			continue
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("email-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("email-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handleEmail(notifService *notifications.NotificationService, msg gokafka.Message) error {
+func handleEmail(notifService *notifications.NotificationService, msg *messaging.Message) error {
 	var evt apievents.NotificationEmailEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Prefer HTML body when available; fall back to plain text.
 	if evt.HTMLBody != "" {
 		if err := notifService.SendHTMLEmail(evt.To, evt.Subject, evt.HTMLBody); err != nil {
 			return fmt.Errorf("send HTML email (%s): %w", evt.EmailType, err)

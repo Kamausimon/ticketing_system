@@ -10,19 +10,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	apievents "ticketing_system/internal/api_events"
 	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/outbox"
 
-	gokafka "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
 )
 
@@ -32,69 +29,62 @@ const (
 )
 
 func main() {
+	cfg := config.LoadOrPanic()
 	db := database.Init()
-	_ = config.LoadOrPanic() // ensure config is valid at startup
-
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
 
 	secretKey := os.Getenv("INTASEND_SECRET_KEY")
 	testMode := os.Getenv("INTASEND_TEST_MODE") == "true"
 
-	consumer := kafka.NewConsumer(brokers, kafkatopics.RefundApprovedTopic, "refund-processor-worker")
-	defer consumer.Close()
-
-	producer := kafka.NewProducer(brokers)
-	defer producer.Close()
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("refund-processor-worker started, listening on", kafkatopics.RefundApprovedTopic)
+	snsClient, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.RefundProcessorWorkerQueue)
+	publisher := messaging.NewSNSPublisher(snsClient, cfg.Messaging.TopicARNs)
+
+	log.Println("refund-processor-worker started, listening on", cfg.Messaging.RefundProcessorWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("refund-processor-worker: read error: %v", err)
+			log.Printf("refund-processor-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
-		if err := handleRefundApproved(ctx, db, producer, secretKey, testMode, msg); err != nil {
-			log.Printf("refund-processor-worker: failed for %s: %v", msg.Key, err)
-			// Commit anyway — Intasend errors are logged and the admin uses
-			// the retry endpoint. Leaving messages uncommitted would cause
+		if err := handleRefundApproved(ctx, db, publisher, secretKey, testMode, msg); err != nil {
+			log.Printf("refund-processor-worker: failed for %s: %v", msg.MessageID, err)
+			// Delete anyway — Intasend errors are logged and the admin uses
+			// the retry endpoint. Leaving messages undeleted would cause
 			// infinite retries and potentially double-charge customers.
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("refund-processor-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("refund-processor-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handleRefundApproved(ctx context.Context, db *gorm.DB, producer *kafka.Producer, secretKey string, testMode bool, msg gokafka.Message) error {
+func handleRefundApproved(ctx context.Context, db *gorm.DB, publisher *messaging.SNSPublisher, secretKey string, testMode bool, msg *messaging.Message) error {
 	var evt apievents.RefundApprovedEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Load refund with payment records needed to call Intasend.
 	var refund models.RefundRecord
 	if err := db.Preload("Order.PaymentRecords").First(&refund, evt.RefundID).Error; err != nil {
 		return fmt.Errorf("load refund %d: %w", evt.RefundID, err)
 	}
 
-	// Idempotency — if already processing or completed, skip.
 	if refund.Status == models.RefundProcessing || refund.Status == models.RefundCompleted {
 		log.Printf("refund-processor-worker: refund %d already %s, skipping", refund.ID, refund.Status)
 		return nil
 	}
 
-	// Find the completed payment record to get the Intasend transaction ID.
 	var payment *models.PaymentRecord
 	for i := range refund.Order.PaymentRecords {
 		if refund.Order.PaymentRecords[i].Status == models.RecordCompleted {
@@ -106,8 +96,6 @@ func handleRefundApproved(ctx context.Context, db *gorm.DB, producer *kafka.Prod
 		return fmt.Errorf("refund %d: no completed payment record found", refund.ID)
 	}
 
-	// Mark as processing before calling Intasend so we don't double-submit
-	// if the worker restarts mid-flight.
 	now := time.Now()
 	refund.Status = models.RefundProcessing
 	refund.ProcessedAt = &now
@@ -115,7 +103,6 @@ func handleRefundApproved(ctx context.Context, db *gorm.DB, producer *kafka.Prod
 		return fmt.Errorf("mark processing: %w", err)
 	}
 
-	// Call Intasend.
 	externalRefundID, err := callIntasend(secretKey, testMode, payment, &refund)
 	if err != nil {
 		failedAt := time.Now()
@@ -125,7 +112,6 @@ func handleRefundApproved(ctx context.Context, db *gorm.DB, producer *kafka.Prod
 		return fmt.Errorf("intasend: %w", err)
 	}
 
-	// Mark completed and update the order in one transaction.
 	tx := db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -149,7 +135,6 @@ func handleRefundApproved(ctx context.Context, db *gorm.DB, producer *kafka.Prod
 		return fmt.Errorf("update order status: %w", err)
 	}
 
-	// Queue the completion email via outbox so it's atomic with the DB update.
 	emailBody := fmt.Sprintf(`Dear Customer,
 
 Your refund of %s %.2f (ref: %s) has been processed successfully.
@@ -172,7 +157,6 @@ Ticketing System`,
 		return fmt.Errorf("commit: %w", err)
 	}
 
-	// Publish refund.completed for analytics and any future consumers.
 	completedEvt := apievents.RefundCompletedEvent{
 		RefundID:         refund.ID,
 		RefundNumber:     refund.RefundNumber,
@@ -181,8 +165,7 @@ Ticketing System`,
 		Timestamp:        completedAt,
 	}
 	payload, _ := json.Marshal(completedEvt)
-	if err := producer.Publish(ctx, kafkatopics.RefundCompletedTopic, fmt.Sprintf("%d", refund.ID), payload); err != nil {
-		// Not fatal — the refund is already marked complete in the DB.
+	if err := publisher.Publish(ctx, messaging.RefundCompletedTopic, fmt.Sprintf("%d", refund.ID), payload); err != nil {
 		log.Printf("refund-processor-worker: publish refund.completed failed for refund %d: %v", refund.ID, err)
 	}
 
@@ -190,7 +173,6 @@ Ticketing System`,
 	return nil
 }
 
-// callIntasend sends the refund request to Intasend and returns the external refund ID.
 func callIntasend(secretKey string, testMode bool, payment *models.PaymentRecord, refund *models.RefundRecord) (string, error) {
 	baseURL := intasendAPIURL
 	if testMode {

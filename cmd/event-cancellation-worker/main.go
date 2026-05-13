@@ -5,72 +5,63 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	apievents "ticketing_system/internal/api_events"
 	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
 
-	gokafka "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
 )
 
 func main() {
-	db := database.Init()
 	cfg := config.LoadOrPanic()
-
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	consumer := kafka.NewConsumer(brokers, kafkatopics.EventCancelledTopic, "event-cancellation-worker")
-	defer consumer.Close()
-
-	notifService := notifications.NewNotificationService(cfg)
+	db := database.Init()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("event-cancellation-worker started, listening on", kafkatopics.EventCancelledTopic)
+	_, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.EventCancellationWorkerQueue)
+	notifService := notifications.NewNotificationService(cfg)
+
+	log.Println("event-cancellation-worker started, listening on", cfg.Messaging.EventCancellationWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("event-cancellation-worker: read error: %v", err)
+			log.Printf("event-cancellation-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
 		if err := handleEventCancelled(ctx, db, notifService, msg); err != nil {
-			log.Printf("event-cancellation-worker: failed to handle event %s: %v", msg.Key, err)
-			// Do not commit — Kafka will redeliver so we can retry.
+			log.Printf("event-cancellation-worker: failed to handle event %s: %v", msg.MessageID, err)
+			// Do not delete — SQS redelivers so we can retry.
 			continue
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("event-cancellation-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("event-cancellation-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handleEventCancelled(_ context.Context, db *gorm.DB, notifService *notifications.NotificationService, msg gokafka.Message) error {
+func handleEventCancelled(_ context.Context, db *gorm.DB, notifService *notifications.NotificationService, msg *messaging.Message) error {
 	var evt apievents.EventCancelledEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
-	// Load all paid or fulfilled orders for this event.
-	// Pending or already-cancelled orders are excluded.
 	var orders []models.Order
 	if err := db.
 		Preload("OrderItems.GeneratedTickets").
@@ -90,14 +81,9 @@ func handleEventCancelled(_ context.Context, db *gorm.DB, notifService *notifica
 	now := time.Now()
 	for _, order := range orders {
 		if err := cascadeOrder(db, order, evt, now); err != nil {
-			// Log per-order failures but continue so one bad order doesn't
-			// block all other attendees from being processed.
 			log.Printf("event-cancellation-worker: failed to cascade order %d: %v", order.ID, err)
 			continue
 		}
-
-		// Email the attendee outside the transaction — a send failure should
-		// not undo the DB state (refund record already created).
 		notifyAttendee(notifService, order, evt)
 	}
 
@@ -105,10 +91,7 @@ func handleEventCancelled(_ context.Context, db *gorm.DB, notifService *notifica
 	return nil
 }
 
-// cascadeOrder cancels one order: creates a refund record, marks the order
-// cancelled, and cancels all its tickets — all in a single transaction.
 func cascadeOrder(db *gorm.DB, order models.Order, evt apievents.EventCancelledEvent, now time.Time) error {
-	// Idempotency: skip if a refund for this order already exists with reason event_cancelled.
 	var existing int64
 	db.Model(&models.RefundRecord{}).
 		Where("order_id = ? AND refund_reason = ?", order.ID, models.RefundEventCancelled).
@@ -124,8 +107,6 @@ func cascadeOrder(db *gorm.DB, order models.Order, evt apievents.EventCancelledE
 		}
 	}()
 
-	// Create refund record directly in approved state — event cancellations
-	// don't need manual approval, they go straight to processing.
 	refundNumber := fmt.Sprintf("REF-EV%d-ORD%d-%d", evt.EventID, order.ID, now.Unix())
 	refund := models.RefundRecord{
 		RefundNumber:    refundNumber,
@@ -149,7 +130,6 @@ func cascadeOrder(db *gorm.DB, order models.Order, evt apievents.EventCancelledE
 		return fmt.Errorf("create refund record: %w", err)
 	}
 
-	// Cancel the order.
 	if err := tx.Model(&order).Updates(map[string]interface{}{
 		"status":       models.OrderCancelled,
 		"cancelled_at": &now,
@@ -158,7 +138,6 @@ func cascadeOrder(db *gorm.DB, order models.Order, evt apievents.EventCancelledE
 		return fmt.Errorf("cancel order: %w", err)
 	}
 
-	// Cancel all tickets belonging to this order's items.
 	for _, item := range order.OrderItems {
 		if len(item.GeneratedTickets) == 0 {
 			continue

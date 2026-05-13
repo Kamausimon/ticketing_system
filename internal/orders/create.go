@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 	apievents "ticketing_system/internal/api_events"
-	kafkatopics "ticketing_system/internal/kafka"
+	kafkatopics "ticketing_system/internal/messaging"
 	"ticketing_system/internal/middleware"
 	"ticketing_system/internal/models"
 	"time"

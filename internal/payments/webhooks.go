@@ -12,7 +12,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	apievents "ticketing_system/internal/api_events"
-	kafkatopics "ticketing_system/internal/kafka"
+	kafkatopics "ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"time"
 

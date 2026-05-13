@@ -5,65 +5,58 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	apievents "ticketing_system/internal/api_events"
 	"ticketing_system/internal/config"
 	"ticketing_system/internal/database"
-	"ticketing_system/internal/kafka"
-	kafkatopics "ticketing_system/internal/kafka"
+	"ticketing_system/internal/messaging"
 	"ticketing_system/internal/models"
 	"ticketing_system/internal/notifications"
 
-	gokafka "github.com/segmentio/kafka-go"
 	"gorm.io/gorm"
 )
 
 func main() {
-	db := database.Init()
 	cfg := config.LoadOrPanic()
-
-	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	if len(brokers) == 0 || brokers[0] == "" {
-		brokers = []string{"localhost:9092"}
-	}
-
-	consumer := kafka.NewConsumer(brokers, kafkatopics.OrderConfirmedTopic, "notification-worker")
-	defer consumer.Close()
-
-	notifService := notifications.NewNotificationService(cfg)
+	db := database.Init()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("notification-worker started, listening on", kafkatopics.OrderConfirmedTopic)
+	_, sqsClient := messaging.NewAWSClients(ctx)
+	consumer := messaging.NewSQSConsumer(sqsClient, cfg.Messaging.NotificationWorkerQueue)
+	notifService := notifications.NewNotificationService(cfg)
+
+	log.Println("notification-worker started, listening on", cfg.Messaging.NotificationWorkerQueue)
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("notification-worker: read error: %v", err)
+			log.Printf("notification-worker: receive error: %v", err)
+			continue
+		}
+		if msg == nil {
 			continue
 		}
 
 		if err := handleOrderConfirmed(ctx, db, notifService, msg); err != nil {
-			log.Printf("notification-worker: failed to handle event %s: %v", msg.Key, err)
+			log.Printf("notification-worker: failed to handle event %s: %v", msg.MessageID, err)
 			continue
 		}
 
-		if err := consumer.CommitMessage(ctx, msg); err != nil {
-			log.Printf("notification-worker: failed to commit offset: %v", err)
+		if err := consumer.DeleteMessage(ctx, msg.ReceiptHandle); err != nil {
+			log.Printf("notification-worker: failed to delete message: %v", err)
 		}
 	}
 }
 
-func handleOrderConfirmed(_ context.Context, db *gorm.DB, notifService *notifications.NotificationService, msg gokafka.Message) error {
+func handleOrderConfirmed(_ context.Context, db *gorm.DB, notifService *notifications.NotificationService, msg *messaging.Message) error {
 	var evt apievents.OrderConfirmedEvent
-	if err := json.Unmarshal(msg.Value, &evt); err != nil {
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
