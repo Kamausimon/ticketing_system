@@ -163,18 +163,13 @@ func (h *RefundHandler) sendRefundCompletedEmail(refund *models.RefundRecord) {
 
 	// Prepare email data
 	data := notifications.RefundData{
-		CustomerName:   account.FirstName + " " + account.LastName,
-		RefundID:       refund.RefundNumber,
-		OrderNumber:    fmt.Sprintf("#%d", order.ID),
-		Currency:       refund.Currency,
-		RefundAmount:   float64(refund.RefundAmount) / 100.0,
-		ProcessedDate:  refund.CompletedAt.Format("2006-01-02 15:04:05"),
-		RefundMethod:   "Original Payment Method",
-		ProcessingDays: 3,
+		CustomerName: account.FirstName + " " + account.LastName,
+		RefundID:     refund.RefundNumber,
+		OrderNumber:  fmt.Sprintf("#%d", order.ID),
+		Currency:     refund.Currency,
+		RefundAmount: float64(refund.RefundAmount) / 100.0,
 	}
 
-	// Re-use the same plain-text body the approved template uses so we don't
-	// need to call notificationService here (that would block on SMTP).
 	body := fmt.Sprintf("Dear %s,\n\nYour refund %s for order #%s of %s %.2f has been completed.\n\nIt will appear in your account within 3 business days.\n\nBest regards,\nTicketing System",
 		data.CustomerName, data.RefundID, data.OrderNumber, data.Currency, data.RefundAmount)
 	if err := outbox.QueueEmail(h.db, []string{account.Email},
