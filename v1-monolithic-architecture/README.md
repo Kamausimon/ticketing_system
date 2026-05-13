@@ -252,8 +252,21 @@ AWS_REGION=us-east-1
 S3_BUCKET=
 S3_PUBLIC_URL=
 
-# ── Email (Brevo) ─────────────────────────────────────
-BREVO_API_KEY=
+# ── Email ─────────────────────────────────────────────
+# Priority: Brevo API → SMTP → test mode (log only)
+#
+# Option 1: Brevo API (recommended for cloud deployments)
+BREVO_API_KEY=               # set this and SMTP vars below are ignored
+
+# Option 2: SMTP (works with Gmail, Outlook, SendGrid, Mailgun, or any relay)
+EMAIL_HOST=smtp.gmail.com    # or smtp-relay.brevo.com, smtp.sendgrid.net, localhost
+EMAIL_PORT=587               # 587 = STARTTLS, 465 = SSL, 25 = plain
+EMAIL_USERNAME=
+EMAIL_PASSWORD=
+EMAIL_USE_TLS=true           # STARTTLS on port 587
+EMAIL_USE_SSL=false          # SSL on port 465
+EMAIL_TIMEOUT=30
+
 EMAIL_FROM=
 EMAIL_FROM_NAME=Ticketing System
 EMAIL_TEST_MODE=true          # set false to actually send emails
@@ -631,7 +644,7 @@ POST   /notifications/password-reset
 | PDF generation | gofpdf |
 | QR codes | go-qrcode |
 | Payments | Intasend (M-Pesa), Stripe |
-| Email | Brevo API |
+| Email | Brevo API or any SMTP server |
 | Password hashing | argon2id |
 | Monitoring | Prometheus + Grafana |
 | Rate limiting | Custom token bucket |
